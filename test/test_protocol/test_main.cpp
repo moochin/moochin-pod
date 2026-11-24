@@ -179,6 +179,13 @@ static void test_looks_like_pod() {
   TEST_ASSERT_FALSE(looksLikePod("Fitbit", 8));
   TEST_ASSERT_FALSE(looksLikePod("", 8));
   TEST_ASSERT_FALSE(looksLikePod(nullptr, 8));
+  TEST_ASSERT_TRUE(looksLikePod("BLAZEPOD", 8));
+  TEST_ASSERT_TRUE(looksLikePod("blazepod x", 8));
+  TEST_ASSERT_FALSE(looksLikePod("Blaze", 8));
+  // No/other name but advertises a pod service UUID
+  TEST_ASSERT_TRUE(looksLikePod("", 8, true));
+  TEST_ASSERT_TRUE(looksLikePod(nullptr, 8, true));
+  TEST_ASSERT_FALSE(looksLikePod(nullptr, 3, true));  // still need mfr data to unlock
 }
 
 int main(int, char**) {

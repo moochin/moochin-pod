@@ -1,6 +1,5 @@
 #include "blazepod_protocol.h"
 
-#include <string.h>
 
 namespace blazepod {
 
@@ -67,9 +66,17 @@ TapParse parseTap(const uint8_t* data, size_t len, Tap& out) {
   return TapParse::Ok;
 }
 
-bool looksLikePod(const char* name, size_t mfrLen) {
-  if (name == nullptr || mfrLen < kMinMfrDataLen) return false;
-  return strncmp(name, kNamePrefix, strlen(kNamePrefix)) == 0;
+bool looksLikePod(const char* name, size_t mfrLen, bool advertisesPodService) {
+  if (mfrLen < kMinMfrDataLen) return false;
+  if (advertisesPodService) return true;
+  if (name == nullptr) return false;
+  for (size_t i = 0; kNamePrefix[i]; i++) {
+    char a = name[i], b = kNamePrefix[i];
+    if (a >= 'A' && a <= 'Z') a += 'a' - 'A';
+    if (b >= 'A' && b <= 'Z') b += 'a' - 'A';
+    if (a != b) return false;  // also stops at the end of a shorter name
+  }
+  return true;
 }
 
 }  // namespace blazepod

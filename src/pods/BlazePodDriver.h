@@ -27,6 +27,16 @@ class BlazePodDriver : public PodDriver {
   // Log every GATT service/characteristic on first connection (spike aid).
   void setLogGatt(bool on) { logGatt_ = on; }
 
+  // Diagnostics: BLE devices heard recently, strongest first.
+  struct Nearby {
+    char name[20];
+    int8_t rssi;
+    uint8_t mfrLen;
+    bool isPod;
+  };
+  uint8_t nearby(Nearby* out, uint8_t max);
+  uint16_t devicesHeard() const { return seenCount_; }
+
  private:
   struct Slot {
     std::atomic<PodStatus> status{PodStatus::Empty};
@@ -55,7 +65,8 @@ class BlazePodDriver : public PodDriver {
   class ScanCallbacks : public NimBLEScanCallbacks {
    public:
     explicit ScanCallbacks(BlazePodDriver& d) : d_(d) {}
-    void onResult(const NimBLEAdvertisedDevice* dev) override;
+    void onDiscovered(const NimBLEAdvertisedDevice* dev) override { d_.handleAdvert(dev); }
+    void onResult(const NimBLEAdvertisedDevice* dev) override { d_.handleAdvert(dev); }
     void onScanEnd(const NimBLEScanResults&, int reason) override;
 
    private:
@@ -71,6 +82,15 @@ class BlazePodDriver : public PodDriver {
     BlazePodDriver& d_;
   };
 
+  struct Seen {
+    NimBLEAddress addr;
+    Nearby info;
+    uint32_t lastSeen;
+  };
+  static constexpr uint8_t kSeenMax = 16;
+
+  void handleAdvert(const NimBLEAdvertisedDevice* dev);
+  void noteSeen(const NimBLEAdvertisedDevice* dev, const std::string& name, size_t mfrLen, bool pod);
   static void taskEntry(void* self);
   void taskLoop();
   void startScan();
@@ -92,6 +112,10 @@ class BlazePodDriver : public PodDriver {
   std::atomic<bool> rescanRequested_{false};
   uint32_t lastNewPodAt_ = 0;
   bool logGatt_ = true;
+  Seen seen_[kSeenMax];
+  uint8_t seenUsed_ = 0;     // guarded by mutex_
+  uint16_t seenCount_ = 0;   // unique devices heard since boot (capped table)
+  uint32_t scanStartedAt_ = 0;
   ScanCallbacks scanCb_{*this};
   ClientCallbacks clientCb_{*this};
 };

@@ -70,8 +70,24 @@ static void drawScreen() {
     d.setFont(&fonts::Font2);
     snprintf(buf, sizeof(buf), "ms  (pod %d)", lastTapPod + 1);
     d.drawString(buf, cx, cy + 42);
+  } else if (pods.connectedCount()) {
+    d.drawString("Press to light a pod", cx, cy + 10);
   } else {
-    d.drawString(pods.connectedCount() ? "Press to light a pod" : "Searching...", cx, cy + 10);
+    // Searching: show what the Dial can hear, so a failed search is diagnosable
+    // without a laptop. Pods are shown in green.
+    snprintf(buf, sizeof(buf), "Searching... heard %u", pods.devicesHeard());
+    d.drawString(buf, cx, cy - 10);
+    BlazePodDriver::Nearby near[4];
+    uint8_t n = pods.nearby(near, 4);
+    d.setFont(&fonts::Font0);
+    for (uint8_t k = 0; k < n; k++) {
+      snprintf(buf, sizeof(buf), "%.14s %ddB m%u", near[k].name[0] ? near[k].name : "(no name)", near[k].rssi,
+               near[k].mfrLen);
+      d.setTextColor(near[k].isPod ? TFT_GREEN : TFT_LIGHTGREY);
+      d.drawString(buf, cx, cy + 10 + k * 12);
+    }
+    d.setFont(&fonts::Font2);
+    d.setTextColor(TFT_WHITE);
   }
   for (uint8_t i = 0; i < pods.maxPods(); i++) {
     if (pods.status(i) == PodStatus::NotResponding) {
@@ -170,6 +186,11 @@ void loop() {
   }
 
   static uint32_t lastDraw = 0;
+  static uint32_t lastSearchRefresh = 0;
+  if (pods.connectedCount() == 0 && now - lastSearchRefresh > 1000) {
+    lastSearchRefresh = now;
+    screenDirty = true;  // refresh the "heard" list while searching
+  }
   if (screenDirty && now - lastDraw > 100) {
     screenDirty = false;
     lastDraw = now;

@@ -39,7 +39,7 @@ void BlazePodDriver::begin(uint8_t maxPods) {
   NimBLEDevice::setPower(9);  // max TX power: pods may be 10-20 m away on a pitch
 
   NimBLEScan* scan = NimBLEDevice::getScan();
-  scan->setScanCallbacks(&scanCb_, false);
+  scan->setScanCallbacks(&scanCb_, true);  // want duplicates: re-check every advert
   scan->setActiveScan(true);  // the "BlazePod" name may be in the scan response
   scan->setMaxResults(0);     // don't keep results in RAM; we filter in onResult
   scan->setInterval(100);
@@ -82,7 +82,7 @@ const char* BlazePodDriver::label(uint8_t slot) const {
 // ------------------------------------------------------------- BLE callbacks
 // These run in the NimBLE host task: keep them short, never block.
 
-void BlazePodDriver::ScanCallbacks::onResult(const NimBLEAdvertisedDevice* dev) {
+void BlazePodDriver::handleAdvert(const NimBLEAdvertisedDevice* dev) {
   // Pick the longest manufacturer data entry (same rule as both reference ports).
   std::string best;
   for (uint8_t i = 0; i < dev->getManufacturerDataCount(); i++) {
@@ -90,17 +90,81 @@ void BlazePodDriver::ScanCallbacks::onResult(const NimBLEAdvertisedDevice* dev) 
     if (m.size() > best.size()) best = m;
   }
   std::string name = dev->getName();
-  if (!blazepod::looksLikePod(name.c_str(), best.size())) return;
+  const bool podService = dev->isAdvertisingService(NimBLEUUID(blazepod::kTapServiceUuid)) ||
+                          dev->isAdvertisingService(NimBLEUUID(blazepod::kColourServiceUuid)) ||
+                          dev->isAdvertisingService(NimBLEUUID(blazepod::kUartServiceUuid));
+  const bool pod = blazepod::looksLikePod(name.c_str(), best.size(), podService);
+  noteSeen(dev, name, best.size(), pod);
+  if (!pod) return;
   if (!dev->isConnectable()) return;
-  if (d_.knownAddress(dev->getAddress())) return;
+  if (knownAddress(dev->getAddress())) return;
 
-  Lock lock(d_.mutex_);
-  if (d_.candidateCount_ >= kMaxSlots) return;
-  Candidate& c = d_.candidates_[d_.candidateCount_++];
+  Lock lock(mutex_);
+  if (candidateCount_ >= kMaxSlots) return;
+  Candidate& c = candidates_[candidateCount_++];
   c.addr = dev->getAddress();
   c.mfrLen = best.size() > sizeof(c.mfr) ? sizeof(c.mfr) : best.size();
   memcpy(c.mfr, best.data(), c.mfrLen);
   c.rssi = dev->getRSSI();
+}
+
+void BlazePodDriver::noteSeen(const NimBLEAdvertisedDevice* dev, const std::string& name, size_t mfrLen,
+                              bool pod) {
+  Lock lock(mutex_);
+  const uint32_t now = millis();
+  Seen* slot = nullptr;
+  for (uint8_t i = 0; i < seenUsed_; i++)
+    if (seen_[i].addr == dev->getAddress()) slot = &seen_[i];
+  bool isNew = slot == nullptr;
+  if (isNew) {
+    if (seenUsed_ < kSeenMax) {
+      slot = &seen_[seenUsed_++];
+    } else {  // replace the stalest entry
+      slot = &seen_[0];
+      for (uint8_t i = 1; i < kSeenMax; i++)
+        if (seen_[i].lastSeen < slot->lastSeen) slot = &seen_[i];
+    }
+    slot->addr = dev->getAddress();
+    slot->info.name[0] = 0;
+    seenCount_++;
+  }
+  // Keep a name once we've heard one (it may only be in the scan response).
+  if (!name.empty()) snprintf(slot->info.name, sizeof(slot->info.name), "%s", name.c_str());
+  if (mfrLen > slot->info.mfrLen || isNew) slot->info.mfrLen = mfrLen;
+  slot->info.rssi = dev->getRSSI();
+  bool becamePod = pod && (isNew || !slot->info.isPod);
+  slot->info.isPod = slot->info.isPod || pod;
+  slot->lastSeen = now;
+  if (isNew || becamePod) {
+    ESP_LOGI(TAG, "heard %s name='%s' rssi=%d mfr=%u bytes svcs=%u%s", dev->getAddress().toString().c_str(),
+             name.c_str(), dev->getRSSI(), (unsigned)mfrLen, dev->getServiceUUIDCount(),
+             pod ? "  <-- POD" : "");
+  }
+}
+
+uint8_t BlazePodDriver::nearby(Nearby* out, uint8_t max) {
+  Lock lock(mutex_);
+  const uint32_t now = millis();
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < seenUsed_; i++) {
+    if (now - seen_[i].lastSeen > 15000) continue;  // only recently heard
+    if (n < max) {
+      out[n++] = seen_[i].info;
+    } else {  // keep the strongest `max`
+      uint8_t weakest = 0;
+      for (uint8_t j = 1; j < n; j++)
+        if (out[j].rssi < out[weakest].rssi) weakest = j;
+      if (seen_[i].info.rssi > out[weakest].rssi) out[weakest] = seen_[i].info;
+    }
+  }
+  for (uint8_t a = 0; a < n; a++)  // sort strongest first
+    for (uint8_t b = a + 1; b < n; b++)
+      if (out[b].rssi > out[a].rssi) {
+        Nearby t = out[a];
+        out[a] = out[b];
+        out[b] = t;
+      }
+  return n;
 }
 
 void BlazePodDriver::ScanCallbacks::onScanEnd(const NimBLEScanResults&, int reason) {
@@ -221,6 +285,11 @@ void BlazePodDriver::taskLoop() {
     bool freeSlot = false;
     for (uint8_t i = 0; i < maxPods_; i++) freeSlot |= !slots_[i].assigned;
     if (freeSlot && !scanning_) startScan();
+    // Safety net: restart the scan every 30 s so a stuck scan can't hide pods.
+    if (freeSlot && scanning_ && now - scanStartedAt_ > 30000) {
+      NimBLEDevice::getScan()->stop();
+      scanning_ = false;
+    }
     if (!freeSlot && scanning_) {
       NimBLEDevice::getScan()->stop();
       scanning_ = false;
@@ -236,7 +305,13 @@ void BlazePodDriver::startScan() {
   bool any = connectedCount() > 0;
   scan->setInterval(any ? 200 : 100);
   scan->setWindow(any ? 40 : 60);
-  if (scan->start(0, false, true)) scanning_ = true;  // 0 = until stopped
+  if (scan->start(0, false, true)) {  // 0 = until stopped
+    scanning_ = true;
+    scanStartedAt_ = millis();
+    ESP_LOGI(TAG, "scanning for pods...");
+  } else {
+    ESP_LOGW(TAG, "scan start failed");
+  }
 }
 
 bool BlazePodDriver::takeCandidate(Candidate& out) {

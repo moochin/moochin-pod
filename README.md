@@ -30,12 +30,20 @@ You need Chrome or Edge on a laptop, a USB-C cable, the Dial and your pods.
 ### 3. Watch it work
 
 1. On the same page, scroll to **Console**, set the baud rate to 115200 and click **Start**. This shows the hub's log.
-2. Switch your pods on.
-3. Within a few seconds each pod should flash its number colour: 1 red, 2 green, 3 blue, 4 yellow. Its dot on the Dial lights up in the same colour.
-4. **Press the Dial.** A random pod lights white. Tap it. The screen shows the reaction time the pod measured, and the log shows a line like:
+2. **Fully close the BlazePod app** (swipe it away), or switch the phone's Bluetooth off. Pods connected to the app stop advertising and the hub can't see them.
+3. Switch your pods on.
+4. Within a few seconds each pod should flash its number colour: 1 red, 2 green, 3 blue, 4 yellow. Its dot on the Dial lights up in the same colour.
+5. **Press the Dial.** A random pod lights white. Tap it. The screen shows the reaction time the pod measured, and the log shows a line like:
    `TAP pod 2 lit-turned-off pod_ms=412 ...`
-5. Switch a pod off and on again. It should reconnect by itself within a few seconds.
-6. **Hold the Dial down for 1.5 seconds** to forget all pods and search again.
+6. Switch a pod off and on again. It should reconnect by itself within a few seconds.
+7. **Hold the Dial down for 1.5 seconds** to forget all pods and search again.
+
+### If it says "Searching..." and nothing connects
+
+While searching, the Dial lists the strongest Bluetooth devices it can hear: name, signal strength and `m` (bytes of manufacturer data). Anything recognised as a pod is shown in **green**. Take a photo of the screen with the pods next to the Dial:
+
+- **No pod names at all:** the pods aren't advertising. Check the app is closed, then switch the pods off and on.
+- **Pods listed but not green:** they advertise differently from what the hub expects. The photo shows how, and I can fix it.
 
 ### What to send back
 

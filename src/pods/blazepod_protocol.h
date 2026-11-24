@@ -57,8 +57,9 @@ enum class TapParse : uint8_t { Ok, TooShort, UnknownState };
 // Parses a tap notification. Bytes 5..7 are unknown and ignored.
 TapParse parseTap(const uint8_t* data, size_t len, Tap& out);
 
-// True if an advertisement looks like a BlazePod: name starts with
-// "BlazePod" and there is usable manufacturer data.
-bool looksLikePod(const char* name, size_t mfrLen);
+// True if an advertisement looks like a BlazePod: it has usable
+// manufacturer data (needed to unlock) AND either the name starts with
+// "BlazePod" (any case) or it advertises one of the pod's own services.
+bool looksLikePod(const char* name, size_t mfrLen, bool advertisesPodService = false);
 
 }  // namespace blazepod
