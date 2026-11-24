@@ -94,13 +94,23 @@ void BlazePodDriver::handleAdvert(const NimBLEAdvertisedDevice* dev) {
                           dev->isAdvertisingService(NimBLEUUID(blazepod::kColourServiceUuid)) ||
                           dev->isAdvertisingService(NimBLEUUID(blazepod::kUartServiceUuid));
   const bool pod = blazepod::looksLikePod(name.c_str(), best.size(), podService);
-  noteSeen(dev, name, best.size(), pod);
+  noteSeen(dev, name, best, pod);
   if (!pod) return;
-  if (!dev->isConnectable()) return;
+  // Don't trust isConnectable(): NimBLE-Arduino 2.1.2 tests legacy advert types
+  // against the extended-advertising bitmask, so a plain ADV_IND (0) reads as
+  // not connectable. Only skip the explicitly non-connectable legacy types.
+  const uint8_t advType = dev->getAdvType();
+  if (advType == BLE_HCI_ADV_RPT_EVTYPE_NONCONN_IND) {
+    ESP_LOGD(TAG, "pod %s skipped: non-connectable advert", dev->getAddress().toString().c_str());
+    return;
+  }
   if (knownAddress(dev->getAddress())) return;
 
   Lock lock(mutex_);
-  if (candidateCount_ >= kMaxSlots) return;
+  if (candidateCount_ >= kMaxSlots) {
+    ESP_LOGW(TAG, "pod %s skipped: candidate list full", dev->getAddress().toString().c_str());
+    return;
+  }
   Candidate& c = candidates_[candidateCount_++];
   c.addr = dev->getAddress();
   c.mfrLen = best.size() > sizeof(c.mfr) ? sizeof(c.mfr) : best.size();
@@ -108,8 +118,9 @@ void BlazePodDriver::handleAdvert(const NimBLEAdvertisedDevice* dev) {
   c.rssi = dev->getRSSI();
 }
 
-void BlazePodDriver::noteSeen(const NimBLEAdvertisedDevice* dev, const std::string& name, size_t mfrLen,
+void BlazePodDriver::noteSeen(const NimBLEAdvertisedDevice* dev, const std::string& name, const std::string& mfr,
                               bool pod) {
+  const size_t mfrLen = mfr.size();
   Lock lock(mutex_);
   const uint32_t now = millis();
   Seen* slot = nullptr;
@@ -128,6 +139,10 @@ void BlazePodDriver::noteSeen(const NimBLEAdvertisedDevice* dev, const std::stri
     slot->info.name[0] = 0;
     seenCount_++;
   }
+  // Diagnostics: log again when a name first appears or the mfr data grows
+  // (both can arrive later, in the scan response).
+  const bool gotName = !name.empty() && slot->info.name[0] == 0;
+  const bool mfrGrew = !isNew && mfrLen > slot->info.mfrLen;
   // Keep a name once we've heard one (it may only be in the scan response).
   if (!name.empty()) snprintf(slot->info.name, sizeof(slot->info.name), "%s", name.c_str());
   if (mfrLen > slot->info.mfrLen || isNew) slot->info.mfrLen = mfrLen;
@@ -135,10 +150,20 @@ void BlazePodDriver::noteSeen(const NimBLEAdvertisedDevice* dev, const std::stri
   bool becamePod = pod && (isNew || !slot->info.isPod);
   slot->info.isPod = slot->info.isPod || pod;
   slot->lastSeen = now;
-  if (isNew || becamePod) {
-    ESP_LOGI(TAG, "heard %s name='%s' rssi=%d mfr=%u bytes svcs=%u%s", dev->getAddress().toString().c_str(),
+  if (isNew || becamePod || gotName || mfrGrew) {
+    ESP_LOGI(TAG, "heard %s name='%s' rssi=%d mfr=%u bytes svcs=%u%s%s", dev->getAddress().toString().c_str(),
              name.c_str(), dev->getRSSI(), (unsigned)mfrLen, dev->getServiceUUIDCount(),
-             pod ? "  <-- POD" : "");
+             pod ? "  <-- POD" : "", isNew ? "" : (gotName ? "  (name arrived)" : "  (mfr grew)"));
+    char hex[3 * 31 + 1];
+    size_t n = 0;
+    for (size_t i = 0; i < mfrLen && n + 4 <= sizeof(hex); i++)
+      n += snprintf(hex + n, sizeof(hex) - n, "%02x ", (uint8_t)mfr[i]);
+    hex[n] = 0;
+    ESP_LOGI(TAG, "  %s mfr: %s| addrType=%u advType=%u", dev->getAddress().toString().c_str(), hex,
+             (unsigned)dev->getAddressType(), (unsigned)dev->getAdvType());
+    for (uint8_t i = 0; i < dev->getServiceUUIDCount(); i++)
+      ESP_LOGI(TAG, "  %s svc[%u]: %s", dev->getAddress().toString().c_str(), i,
+               dev->getServiceUUID(i).toString().c_str());
   }
 }
 
@@ -286,7 +311,9 @@ void BlazePodDriver::taskLoop() {
     for (uint8_t i = 0; i < maxPods_; i++) freeSlot |= !slots_[i].assigned;
     if (freeSlot && !scanning_) startScan();
     // Safety net: restart the scan every 30 s so a stuck scan can't hide pods.
-    if (freeSlot && scanning_ && now - scanStartedAt_ > 30000) {
+    // Re-read millis(): startScan() may have just set scanStartedAt_ later than
+    // `now`, and the unsigned subtraction would wrap and stop it immediately.
+    if (freeSlot && scanning_ && millis() - scanStartedAt_ > 30000) {
       NimBLEDevice::getScan()->stop();
       scanning_ = false;
     }
@@ -373,14 +400,17 @@ bool BlazePodDriver::connectSlot(uint8_t i) {
   uint32_t t0 = millis();
   if (!s.client->connect(s.addr, true)) return fail("connect failed");
 
+  // Dump the table BEFORE looking anything up: logGatt() refreshes discovery
+  // (getServices(true)), which deletes and recreates every remote service and
+  // characteristic object, so pointers taken earlier would dangle.
+  if (logGatt_ && !s.gattLogged) logGatt(s, i);
+
   NimBLERemoteService* uart = s.client->getService(blazepod::kUartServiceUuid);
   NimBLERemoteCharacteristic* rx = uart ? uart->getCharacteristic(blazepod::kUartRxCharUuid) : nullptr;
   NimBLERemoteService* tapSvc = s.client->getService(blazepod::kTapServiceUuid);
   NimBLERemoteCharacteristic* tap = tapSvc ? tapSvc->getCharacteristic(blazepod::kTapCharUuid) : nullptr;
   NimBLERemoteService* colSvc = s.client->getService(blazepod::kColourServiceUuid);
   NimBLERemoteCharacteristic* col = colSvc ? colSvc->getCharacteristic(blazepod::kColourCharUuid) : nullptr;
-
-  if (logGatt_ && !s.gattLogged) logGatt(s, i);
 
   if (!rx || !tap || !col) {
     s.quickDrops = kQuickDropsBeforeGivingUp;  // protocol mismatch: no point hammering it

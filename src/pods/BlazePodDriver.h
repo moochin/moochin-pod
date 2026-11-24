@@ -90,7 +90,7 @@ class BlazePodDriver : public PodDriver {
   static constexpr uint8_t kSeenMax = 16;
 
   void handleAdvert(const NimBLEAdvertisedDevice* dev);
-  void noteSeen(const NimBLEAdvertisedDevice* dev, const std::string& name, size_t mfrLen, bool pod);
+  void noteSeen(const NimBLEAdvertisedDevice* dev, const std::string& name, const std::string& mfr, bool pod);
   static void taskEntry(void* self);
   void taskLoop();
   void startScan();

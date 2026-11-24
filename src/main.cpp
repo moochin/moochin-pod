@@ -168,8 +168,11 @@ void loop() {
     const char* kind = tap.kind == TapKind::WhileOff      ? "while-off"
                        : tap.kind == TapKind::LitStayedOn ? "lit-stayed-on"
                                                           : "lit-turned-off";
-    ESP_LOGI(TAG, "TAP pod %u %s pod_ms=%lu (hub saw %lu ms after lighting)", tap.slot + 1, kind,
-             (unsigned long)tap.podMs, (unsigned long)(tap.hubMillis - litAt));
+    if (tap.slot == litPod)
+      ESP_LOGI(TAG, "TAP pod %u %s pod_ms=%lu (hub saw %lu ms after lighting)", tap.slot + 1, kind,
+               (unsigned long)tap.podMs, (unsigned long)(tap.hubMillis - litAt));
+    else
+      ESP_LOGI(TAG, "TAP pod %u %s pod_ms=%lu", tap.slot + 1, kind, (unsigned long)tap.podMs);
     if (tap.kind != TapKind::WhileOff && tap.slot == litPod) {
       lastTapMs = tap.podMs;
       lastTapPod = tap.slot;
