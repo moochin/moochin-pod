@@ -1,5 +1,7 @@
 #include "BlazePodDriver.h"
 
+#include <Preferences.h>
+
 #include "blazepod_protocol.h"
 
 static const char* TAG = "pods";
@@ -11,6 +13,18 @@ constexpr uint32_t kQuickDropMs = 15000;
 constexpr uint8_t kQuickDropsBeforeGivingUp = 3;
 constexpr uint32_t kNotRespondingRetryMs = 10000;
 constexpr size_t kTapQueueLen = 32;
+// Scan for a known-but-missing pod after this long (refreshes its advert data).
+constexpr uint32_t kScanForMissingAfterMs = 10000;
+constexpr uint32_t kRssiPollMs = 5000;
+constexpr const char* kStoreNs = "pods";
+
+// One remembered pod, stored in NVS so pod numbers survive restarts.
+struct __attribute__((packed)) StoredPod {
+  uint8_t addr[6];
+  uint8_t addrType;
+  uint8_t mfrLen;
+  uint8_t mfr[31];
+};
 
 const NimBLEUUID kBatteryService((uint16_t)0x180F);
 const NimBLEUUID kBatteryLevel((uint16_t)0x2A19);
@@ -45,7 +59,8 @@ void BlazePodDriver::begin(uint8_t maxPods) {
   scan->setInterval(100);
   scan->setWindow(60);
 
-  lastNewPodAt_ = millis();
+  beganAt_ = lastNewPodAt_ = millis();
+  loadStore();
   // Core 0 alongside the NimBLE host; the Arduino loop/UI runs on core 1.
   xTaskCreatePinnedToCore(taskEntry, "pods", 6144, this, 2, nullptr, 0);
   ESP_LOGI(TAG, "started, expecting up to %u pods", maxPods_);
@@ -74,6 +89,18 @@ int8_t BlazePodDriver::battery(uint8_t slot) const {
 }
 
 void BlazePodDriver::rescan() { rescanRequested_ = true; }
+
+BlazePodDriver::PodStats BlazePodDriver::stats(uint8_t slot) const {
+  PodStats st{};
+  if (slot >= maxPods_) return st;
+  const Slot& s = slots_[slot];
+  st.connects = s.connects;
+  st.drops = s.drops;
+  st.lastGapMs = s.lastGapMs;
+  st.longestGapMs = s.longestGapMs;
+  st.rssi = s.rssi;
+  return st;
+}
 
 const char* BlazePodDriver::label(uint8_t slot) const {
   return slot < maxPods_ ? slots_[slot].label : "-";
@@ -104,6 +131,7 @@ void BlazePodDriver::handleAdvert(const NimBLEAdvertisedDevice* dev) {
     ESP_LOGD(TAG, "pod %s skipped: non-connectable advert", dev->getAddress().toString().c_str());
     return;
   }
+  if (refreshKnown(dev->getAddress(), best)) return;
   if (knownAddress(dev->getAddress())) return;
 
   Lock lock(mutex_);
@@ -210,6 +238,9 @@ void BlazePodDriver::ClientCallbacks::onDisconnect(NimBLEClient* c, int reason) 
   if (!s.assigned || s.status != PodStatus::Connected) return;
   uint32_t now = millis();
   uint32_t upFor = now - s.unlockedAt;
+  s.drops++;
+  s.downSince = now;
+  s.rssi = 0;
   s.quickDrops = upFor < kQuickDropMs ? s.quickDrops + 1 : 0;
   ESP_LOGW(TAG, "pod %d (%s) disconnected after %lu ms, reason 0x%X", i + 1, s.label,
            (unsigned long)upFor, reason);
@@ -254,22 +285,15 @@ void BlazePodDriver::taskLoop() {
   for (;;) {
     if (rescanRequested_) {
       rescanRequested_ = false;
-      NimBLEDevice::getScan()->stop();
-      for (uint8_t i = 0; i < maxPods_; i++) {
-        Slot& s = slots_[i];
-        if (s.client && s.client->isConnected()) {
-          s.status = PodStatus::Empty;  // so onDisconnect doesn't count a quick drop
-          s.client->disconnect();
-        }
-        s.assigned = false;
-        s.status = PodStatus::Empty;
-        s.quickDrops = s.failedAttempts = 0;
-        s.battery = -1;
-        strcpy(s.label, "-");
+      forgetAll();
+    }
+
+    // Persist advert data that changed (NVS writes stay in this task).
+    for (uint8_t i = 0; i < maxPods_; i++) {
+      if (slots_[i].mfrDirty) {
+        slots_[i].mfrDirty = false;
+        saveSlot(i);
       }
-      Lock lock(mutex_);
-      candidateCount_ = 0;
-      ESP_LOGI(TAG, "rescan requested: forgot all pods");
     }
 
     // 1. New pods found by the scanner: give each the next free number.
@@ -287,6 +311,8 @@ void BlazePodDriver::taskLoop() {
         hex(s.mfr, s.mfrLen, m, sizeof(m));
         ESP_LOGI(TAG, "found pod -> #%u  addr=%s rssi=%d mfr=%s", i + 1, s.label, c.rssi, m);
         lastNewPodAt_ = millis();
+        s.downSince = lastNewPodAt_;
+        saveSlot(i);
         connectSlot(i);
         break;
       }
@@ -306,9 +332,31 @@ void BlazePodDriver::taskLoop() {
       if ((int32_t)(now - s.nextAttemptAt) >= 0) connectSlot(i);
     }
 
-    // 3. Keep looking while there are free slots.
+    if (!allConnectedAt_ && maxPods_ && connectedCount() == maxPods_) {
+      allConnectedAt_ = millis();
+      ESP_LOGI(TAG, "all %u pods connected %lu ms after start", maxPods_,
+               (unsigned long)(allConnectedAt_ - beganAt_));
+    }
+
+    // Signal strength of each link, for the soak stats.
+    if (millis() - lastRssiPoll_ > kRssiPollMs) {
+      lastRssiPoll_ = millis();
+      for (uint8_t i = 0; i < maxPods_; i++) {
+        Slot& s = slots_[i];
+        if (s.status == PodStatus::Connected && s.client && s.client->isConnected())
+          s.rssi = (int8_t)s.client->getRssi();
+      }
+    }
+
+    // 3. Keep looking while there are free slots, or a known pod has been
+    // missing a while (its advert data may have changed; scanning refreshes it).
     bool freeSlot = false;
-    for (uint8_t i = 0; i < maxPods_; i++) freeSlot |= !slots_[i].assigned;
+    now = millis();
+    for (uint8_t i = 0; i < maxPods_; i++) {
+      const Slot& s = slots_[i];
+      freeSlot |= !s.assigned;
+      freeSlot |= s.assigned && s.status != PodStatus::Connected && now - s.downSince > kScanForMissingAfterMs;
+    }
     if (freeSlot && !scanning_) startScan();
     // Safety net: restart the scan every 30 s so a stuck scan can't hide pods.
     // Re-read millis(): startScan() may have just set scanStartedAt_ later than
@@ -417,8 +465,15 @@ bool BlazePodDriver::connectSlot(uint8_t i) {
     return fail("expected BlazePod services missing (newer pod firmware?)");
   }
 
+  uint8_t mfr[sizeof(s.mfr)];
+  uint8_t mfrLen;
+  {
+    Lock lock(mutex_);  // the scanner may refresh it concurrently
+    mfrLen = s.mfrLen;
+    memcpy(mfr, s.mfr, mfrLen);
+  }
   uint8_t auth[blazepod::kAuthPayloadLen];
-  if (!blazepod::buildAuthPayload(s.mfr, s.mfrLen, auth)) return fail("manufacturer data too short");
+  if (!blazepod::buildAuthPayload(mfr, mfrLen, auth)) return fail("manufacturer data too short");
   char authHex[16];
   hex(auth, sizeof(auth), authHex, sizeof(authHex));
   if (!rx->writeValue(auth, sizeof(auth), true)) return fail("unlock write rejected");
@@ -437,6 +492,15 @@ bool BlazePodDriver::connectSlot(uint8_t i) {
   }
   s.unlockedAt = millis();
   s.failedAttempts = 0;
+  s.connects++;
+  if (s.everConnected) {
+    s.lastGapMs = s.unlockedAt - s.downSince;
+    if (s.lastGapMs > s.longestGapMs) s.longestGapMs = s.lastGapMs;
+    ESP_LOGI(TAG, "pod %u back after %lu ms (worst %lu ms)", i + 1, (unsigned long)s.lastGapMs,
+             (unsigned long)s.longestGapMs);
+  }
+  s.everConnected = true;
+  s.rssi = (int8_t)s.client->getRssi();
   s.status = PodStatus::Connected;
   ESP_LOGI(TAG, "pod %u connected+unlocked in %lu ms (auth %s, battery %d)", i + 1,
            (unsigned long)(s.unlockedAt - t0), authHex, s.battery.load());
@@ -464,4 +528,101 @@ void BlazePodDriver::logGatt(Slot& s, uint8_t i) {
                chr->canWrite() ? "W" : "", chr->canWriteNoResponse() ? "w" : "", chr->canNotify() ? "N" : "");
     }
   }
+}
+
+// ------------------------------------------------------------- persistence
+
+bool BlazePodDriver::refreshKnown(const NimBLEAddress& a, const std::string& mfr) {
+  for (uint8_t i = 0; i < maxPods_; i++) {
+    Slot& s = slots_[i];
+    if (!s.assigned || !(s.addr == a)) continue;
+    // Only take data at least as long as what we have: the short advert and
+    // the longer scan-response copy can alternate.
+    if (mfr.size() >= blazepod::kMinMfrDataLen && mfr.size() >= s.mfrLen && mfr.size() <= sizeof(s.mfr)) {
+      Lock lock(mutex_);
+      if (mfr.size() != s.mfrLen || memcmp(mfr.data(), s.mfr, s.mfrLen) != 0) {
+        memcpy(s.mfr, mfr.data(), mfr.size());
+        s.mfrLen = mfr.size();
+        s.mfrDirty = true;
+        ESP_LOGI(TAG, "pod %u advert data changed, updated", i + 1);
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+void BlazePodDriver::loadStore() {
+  Preferences p;
+  if (!p.begin(kStoreNs, true)) return;  // nothing stored yet
+  for (uint8_t i = 0; i < maxPods_; i++) {
+    char key[4] = {'p', (char)('0' + i), 0};
+    StoredPod sp;
+    if (p.getBytesLength(key) != sizeof(sp) || p.getBytes(key, &sp, sizeof(sp)) != sizeof(sp)) continue;
+    if (sp.mfrLen < blazepod::kMinMfrDataLen || sp.mfrLen > sizeof(sp.mfr)) continue;
+    Slot& s = slots_[i];
+    s.assigned = true;
+    s.addr = NimBLEAddress(sp.addr, sp.addrType);
+    s.mfrLen = sp.mfrLen;
+    memcpy(s.mfr, sp.mfr, sp.mfrLen);
+    s.status = PodStatus::Lost;  // reconnect straight to its address
+    s.nextAttemptAt = millis();
+    s.downSince = millis();
+    snprintf(s.label, sizeof(s.label), "%s", s.addr.toString().c_str());
+    ESP_LOGI(TAG, "remembered pod #%u %s", i + 1, s.label);
+  }
+  p.end();
+}
+
+void BlazePodDriver::saveSlot(uint8_t i) {
+  const Slot& s = slots_[i];
+  StoredPod sp{};
+  memcpy(sp.addr, s.addr.getVal(), 6);
+  sp.addrType = s.addr.getType();
+  {
+    Lock lock(mutex_);
+    sp.mfrLen = s.mfrLen;
+    memcpy(sp.mfr, s.mfr, s.mfrLen);
+  }
+  Preferences p;
+  if (!p.begin(kStoreNs, false)) return;
+  char key[4] = {'p', (char)('0' + i), 0};
+  p.putBytes(key, &sp, sizeof(sp));
+  p.end();
+}
+
+void BlazePodDriver::clearStore() {
+  Preferences p;
+  if (p.begin(kStoreNs, false)) {
+    p.clear();
+    p.end();
+  }
+}
+
+void BlazePodDriver::forgetAll() {
+  NimBLEDevice::getScan()->stop();
+  for (uint8_t i = 0; i < maxPods_; i++) {
+    Slot& s = slots_[i];
+    if (s.client && s.client->isConnected()) {
+      s.status = PodStatus::Empty;  // so onDisconnect doesn't count a drop
+      s.client->disconnect();
+    }
+    s.assigned = false;
+    s.status = PodStatus::Empty;
+    s.quickDrops = s.failedAttempts = 0;
+    s.battery = -1;
+    s.rssi = 0;
+    s.everConnected = false;
+    s.connects = s.drops = 0;
+    s.lastGapMs = s.longestGapMs = 0;
+    strcpy(s.label, "-");
+  }
+  {
+    Lock lock(mutex_);
+    candidateCount_ = 0;
+  }
+  allConnectedAt_ = 0;
+  beganAt_ = millis();
+  clearStore();
+  ESP_LOGI(TAG, "rescan requested: forgot all pods");
 }

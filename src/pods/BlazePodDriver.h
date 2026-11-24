@@ -37,6 +37,18 @@ class BlazePodDriver : public PodDriver {
   uint8_t nearby(Nearby* out, uint8_t max);
   uint16_t devicesHeard() const { return seenCount_; }
 
+  // Stability stats (milestone 2 soak testing).
+  struct PodStats {
+    uint16_t connects;      // successful connect+unlock count
+    uint16_t drops;         // times a connected pod dropped
+    uint32_t lastGapMs;     // last drop -> reconnected time
+    uint32_t longestGapMs;  // worst drop -> reconnected time
+    int8_t rssi;            // last connection RSSI (0 = unknown)
+  };
+  PodStats stats(uint8_t slot) const;
+  // ms after begin() when all expected pods were first connected (0 = not yet).
+  uint32_t allConnectedAfterMs() const { return allConnectedAt_ ? allConnectedAt_ - beganAt_ : 0; }
+
  private:
   struct Slot {
     std::atomic<PodStatus> status{PodStatus::Empty};
@@ -53,6 +65,12 @@ class BlazePodDriver : public PodDriver {
     bool gattLogged = false;
     std::atomic<int8_t> battery{-1};
     char label[18] = "-";
+    bool mfrDirty = false;     // advert data changed: persist from the pods task
+    bool everConnected = false;
+    uint32_t downSince = 0;    // when it was last seen not connected
+    uint16_t connects = 0, drops = 0;
+    uint32_t lastGapMs = 0, longestGapMs = 0;
+    std::atomic<int8_t> rssi{0};
   };
 
   struct Candidate {
@@ -96,6 +114,11 @@ class BlazePodDriver : public PodDriver {
   void startScan();
   bool takeCandidate(Candidate& out);
   bool knownAddress(const NimBLEAddress& a);
+  bool refreshKnown(const NimBLEAddress& a, const std::string& mfr);
+  void loadStore();
+  void saveSlot(uint8_t i);
+  void clearStore();
+  void forgetAll();
   bool connectSlot(uint8_t i);
   void logGatt(Slot& s, uint8_t i);
   void readBattery(Slot& s);
@@ -116,6 +139,9 @@ class BlazePodDriver : public PodDriver {
   uint8_t seenUsed_ = 0;     // guarded by mutex_
   uint16_t seenCount_ = 0;   // unique devices heard since boot (capped table)
   uint32_t scanStartedAt_ = 0;
+  uint32_t beganAt_ = 0;
+  uint32_t allConnectedAt_ = 0;
+  uint32_t lastRssiPoll_ = 0;
   ScanCallbacks scanCb_{*this};
   ClientCallbacks clientCb_{*this};
 };

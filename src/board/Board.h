@@ -19,7 +19,9 @@ class Board {
   void update() { M5.update(); }
 
   // Pressing the whole Dial face (BtnA on the Dial).
-  bool wasPressed() { return M5.BtnA.wasClicked(); }
+  // Number of quick presses once the sequence is finished (1, 2, 3...), else 0.
+  // Arrives ~300 ms after the last press, so single/double/triple are distinct.
+  uint8_t clicks() { return M5.BtnA.wasDecideClickCount() ? M5.BtnA.getClickCount() : 0; }
   bool wasLongPressed() { return M5.BtnA.wasHold(); }
 
   void beep(float hz, uint32_t ms) {

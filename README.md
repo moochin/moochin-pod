@@ -5,11 +5,11 @@ A small box (an M5Stack Dial) that runs reaction-light drills on your BlazePods.
 > Unofficial personal project. Not affiliated with or endorsed by BlazePod / PLAY COYOTTA LTD.
 > **Once Pod Hub works, don't update your pods' firmware in the official app.** An update could change how the pods talk, and the hub would stop working.
 
-**Status: milestone 1 (spike).** The hub finds the pods, connects, lights them and reads taps. Drills, the phone page and the one-click installer come in later milestones. This page will become a step-by-step guide for parents.
+**Status: milestone 2.** The hub connects to all the pods by itself, remembers them, and runs its own Wi-Fi network with a live status page. Drills, the full phone page and the one-click installer come in later milestones. This page will become a step-by-step guide for parents.
 
 ---
 
-## Testing the milestone 1 spike
+## Testing (milestones 1 and 2)
 
 You need Chrome or Edge on a laptop, a USB-C cable, the Dial and your pods.
 
@@ -45,6 +45,29 @@ While searching, the Dial lists the strongest Bluetooth devices it can hear: nam
 - **No pod names at all:** the pods aren't advertising. Check the app is closed, then switch the pods off and on.
 - **Pods listed but not green:** they advertise differently from what the hub expects. The photo shows how, and I can fix it.
 
+### Buttons (for now)
+
+| Do this | What happens |
+|---|---|
+| Press once | A random pod lights white. Tap it to see your reaction time. |
+| Press twice | Phone mode on/off: the hub's Wi-Fi `PodHub`, plus a QR code to join it |
+| Press three times | Soak test on/off: the hub lights random pods by itself |
+| Hold 1.5 s | Forget the pods and search again |
+
+The knob and a proper menu come in milestone 3.
+
+### Milestone 2: the 20-minute stability test
+
+1. Flash the new firmware as above. Phone mode is **on** at first start.
+2. Switch the pods on. Note how long it takes for all four dots to light. The log prints `all 4 pods connected ... ms after start`.
+3. **Unplug the Dial and plug it back in.** Each pod should keep its number: pod 1 is still red, and so on.
+4. **Join the hub from your iPhone.** Press twice to show the QR code (or open Settings → Wi-Fi → `PodHub`). The status page should open by itself. If it doesn't, open Safari and go to `192.168.4.1`.
+5. **Press three times** to start the soak test. The hub lights a pod every couple of seconds. Tap some of them and leave the rest, so both hits and misses are counted.
+6. Leave it running for **20 minutes or more**, with the phone page open part of the time. Partway through, switch one pod off for about 10 seconds and back on, then walk a pod away until it drops.
+7. Check the bottom line on the Dial (`uptime  drops  free memory`) and the phone page.
+
+**What good looks like:** no reboots (uptime keeps counting), free memory steady rather than falling, any dropped pod back within 10 seconds (`Worst gap` on the phone page), and all pods connected within 20 seconds of power-on.
+
 ### What to send back
 
 Copy the console log and send it, especially:
@@ -52,4 +75,5 @@ Copy the console log and send it, especially:
 - the `found pod` lines (they show each pod's advertising data),
 - the `GATT table` lines (they show whether the pods report their battery),
 - any line saying **not responding** or **newer firmware**,
-- the `heap free=` lines after a few minutes.
+- the `heap free=` lines after a few minutes,
+- for milestone 2: the `all 4 pods connected` line, the `pod N: ... drops= worstGap=` summary from the end of the run, and a screenshot of the phone page.

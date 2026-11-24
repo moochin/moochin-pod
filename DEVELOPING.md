@@ -15,8 +15,11 @@ pio run -e dial -t upload && pio device monitor
 
 ```
 src/
-  main.cpp                 wiring + milestone 1 spike UI
-  board/Board.h            M5Unified wrapper (display, press, buzzer)
+  main.cpp                 wiring + test UI (soak test, QR, status JSON)
+  board/Board.h            M5Unified wrapper (display, press/click count, buzzer)
+  settings/Settings.h      NVS settings (phone mode, expected pods)
+  web/PhoneServer.*        Wi-Fi AP "PodHub", captive DNS, AsyncWebServer
+  web/status_page.h        milestone 2 status page (inline HTML)
   pods/PodDriver.h         hardware-agnostic pod interface (BLE now, ESP-NOW later)
   pods/BlazePodDriver.*    NimBLE central implementation
   pods/blazepod_protocol.* pure protocol functions (unit tested)
@@ -43,6 +46,14 @@ A pod that rejects the unlock is expected to drop the link soon after (Snerls ha
 - The Arduino `loop()` (core 1) calls only `setColour()`, a write without response that doesn't block, and `pollTap()`.
 - Tap notifications go from the NimBLE host into a FreeRTOS queue of 32 entries.
 - Known pods reconnect straight to their address without scanning, backing off 0.5 / 1 / 2 s.
+
+### Pod numbering and persistence
+
+When a pod is first assigned a number, its address and manufacturer data are saved to NVS (namespace `pods`, keys `p0`..`p5`). At boot, remembered pods reconnect straight to their address with no scan, so the 20-second power-on target doesn't depend on discovery. The driver scans when a number is free, or when a remembered pod has been missing for more than 10 s, because its advertising data might have changed. Data from a known address is updated and saved again if it changes. Holding the button for 1.5 s (rescan) clears the store.
+
+### Phone mode
+
+`PhoneServer` starts the open AP `PodHub` (192.168.4.1, at most 4 clients) and a DNS server that answers every name with the hub's IP. Every unknown URL, including iOS `/hotspot-detect.html` and Android `/generate_204`, redirects to `/`, which makes phones show the captive-portal sheet. AsyncTCP runs on core 1 with a 6 KB stack. `/api/status` returns JSON built with `snprintf`.
 
 ### Limits to keep in mind
 
