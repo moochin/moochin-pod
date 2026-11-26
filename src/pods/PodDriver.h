@@ -54,6 +54,10 @@ class PodDriver {
   // Forget all pods and search again.
   virtual void rescan() = 0;
 
+  // Called every loop with millis(). Drivers that do their work in their
+  // own task (BLE) ignore it; the mock uses it to deliver simulated taps.
+  virtual void tick(uint32_t now) { (void)now; }
+
   // Short human-readable id for logs (e.g. BLE address).
   virtual const char* label(uint8_t slot) const = 0;
 };

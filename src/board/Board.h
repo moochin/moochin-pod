@@ -1,38 +1,58 @@
 // Thin hardware wrapper so the rest of the firmware doesn't care which
 // ESP32-S3 board it runs on. Today: M5Stack Dial via M5Unified.
+//
+// Inputs: the knob (rotary encoder) and pressing the whole Dial face.
+// Everything works without touch, so muddy hands and gloves are fine.
 #pragma once
 
 #include <M5Unified.h>
 
 class Board {
  public:
-  void begin() {
-    auto cfg = M5.config();
-    cfg.serial_baudrate = 115200;
-    cfg.internal_spk = true;
-    M5.begin(cfg);
-    M5.Display.setBrightness(160);
-    M5.Speaker.setVolume(160);
-    M5.BtnA.setHoldThresh(1500);
-  }
+  // Brightness steps offered in the menu (index 0..3).
+  static constexpr uint8_t kBrightness[4] = {40, 90, 160, 255};
 
-  void update() { M5.update(); }
+  void begin();
+  void update();
 
-  // Pressing the whole Dial face (BtnA on the Dial).
-  // Number of quick presses once the sequence is finished (1, 2, 3...), else 0.
-  // Arrives ~300 ms after the last press, so single/double/triple are distinct.
-  uint8_t clicks() { return M5.BtnA.wasDecideClickCount() ? M5.BtnA.getClickCount() : 0; }
-  bool wasLongPressed() { return M5.BtnA.wasHold(); }
+  // Knob: clicks turned since the last call (+ clockwise, - anticlockwise).
+  int knob();
+  // Press = press and release; long press = held for kLongPressMs.
+  bool pressed() { return M5.BtnA.wasClicked(); }
+  bool longPressed() { return M5.BtnA.wasHold(); }
+  bool anyInput() const { return lastInputAt_ != 0; }
+  uint32_t lastInputAt() const { return lastInputAt_; }
 
-  void beep(float hz, uint32_t ms) {
-    if (soundOn_) M5.Speaker.tone(hz, ms);
-  }
+  // Sound: non-blocking. Notes play one after another from update().
+  struct Note {
+    uint16_t hz;     // 0 = rest
+    uint16_t ms;
+  };
+  void beep(uint16_t hz, uint16_t ms) { play({{hz, ms}}); }
+  // replace = true: drop anything still queued (immediate feedback).
+  // replace = false: play after what's queued (don't cut a miss beep short).
+  void play(std::initializer_list<Note> notes, bool replace = true);
   void setSound(bool on) { soundOn_ = on; }
+
+  void setBrightnessLevel(uint8_t level);  // 0..3
 
   M5GFX& display() { return M5.Display; }
   int width() { return M5.Display.width(); }
   int height() { return M5.Display.height(); }
 
+  // Cuts the power when running on the battery (releases the Dial's
+  // power-hold pin). On USB power the Dial can't switch itself off, so it
+  // goes into deep sleep with the screen off until USB is unplugged or reset.
+  [[noreturn]] void powerOff();
+
  private:
+  static constexpr uint32_t kLongPressMs = 3000;
+  static constexpr int kCountsPerClick = 4;  // quadrature counts per knob detent
+
   bool soundOn_ = true;
+  uint32_t lastInputAt_ = 0;
+  int knobRemainder_ = 0;
+  Note notes_[12];
+  uint8_t noteHead_ = 0, noteLen_ = 0;
+  uint32_t noteEndsAt_ = 0;
 };

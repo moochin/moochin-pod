@@ -15,15 +15,22 @@ pio run -e dial -t upload && pio device monitor
 
 ```
 src/
-  main.cpp                 wiring + test UI (soak test, QR, status JSON)
-  board/Board.h            M5Unified wrapper (display, press/click count, buzzer)
-  settings/Settings.h      NVS settings (phone mode, expected pods)
+  main.cpp                 wiring only (driver choice, loop, status JSON)
+  board/Board.*            M5Unified wrapper: knob (quadrature ISR), press, beep queue, power off
+  ui/DialUi.*              on-Dial screens: home, countdown, running, results, menu, off
+  engine/DrillEngine.*     drill state machine (no Arduino deps, unit tested)
+  engine/DrillConfig.h     drill = data; engine/Drills.h = catalogue
+  storage/PersonalBests.h  PBs per player/drill/length (NVS)
+  storage/Players.h        player names (NVS)
+  settings/Settings.h      NVS settings
   web/PhoneServer.*        Wi-Fi AP "PodHub", captive DNS, AsyncWebServer
   web/status_page.h        milestone 2 status page (inline HTML)
   pods/PodDriver.h         hardware-agnostic pod interface (BLE now, ESP-NOW later)
   pods/BlazePodDriver.*    NimBLE central implementation
+  pods/MockPodDriver.*     simulated pods ("Demo pods" setting + native tests)
   pods/blazepod_protocol.* pure protocol functions (unit tested)
-test/test_protocol/        Unity tests run natively
+test/test_protocol/        Unity tests: checksum, colour, tap parsing
+test/test_engine/          Unity tests: drill engine against MockPodDriver
 ```
 
 ## BlazePod protocol notes
@@ -54,6 +61,18 @@ When a pod is first assigned a number, its address and manufacturer data are sav
 ### Phone mode
 
 `PhoneServer` starts the open AP `PodHub` (192.168.4.1, at most 4 clients) and a DNS server that answers every name with the hub's IP. Every unknown URL, including iOS `/hotspot-detect.html` and Android `/generate_204`, redirects to `/`, which makes phones show the captive-portal sheet. AsyncTCP runs on core 1 with a 6 KB stack. `/api/status` returns JSON built with `snprintf`.
+
+### Drill engine
+
+`DrillEngine` is a non-blocking state machine (Idle, Countdown, Running, Finished). It's driven by `tick(now)` and `onTap(tap, now)` and reports what happened through `pollEvent()`. It lights pods with "off on tap" and scores the pod-measured ms. A lit pod that disconnects doesn't count as a miss. Random picks never repeat the previous pod. Time is passed in, so the tests drive it deterministically.
+
+### Knob
+
+The ISR decodes full quadrature on GPIO41/40 (same pins as M5Stack's M5Dial library). `Board::kCountsPerClick = 4`. If one detent moves two menu items or needs two clicks, change it to 2.
+
+### Power
+
+The Dial has no PMIC or battery ADC (M5Unified configures neither for the Dial), so no battery level. `Board::powerOff()` → `M5.Power.powerOff()` drives GPIO46 (power hold) low, which cuts the power on battery. On USB it falls through to deep sleep.
 
 ### Limits to keep in mind
 

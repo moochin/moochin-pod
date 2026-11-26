@@ -5,7 +5,7 @@ A small box (an M5Stack Dial) that runs reaction-light drills on your BlazePods.
 > Unofficial personal project. Not affiliated with or endorsed by BlazePod / PLAY COYOTTA LTD.
 > **Once Pod Hub works, don't update your pods' firmware in the official app.** An update could change how the pods talk, and the hub would stop working.
 
-**Status: milestone 2.** The hub connects to all the pods by itself, remembers them, and runs its own Wi-Fi network with a live status page. Drills, the full phone page and the one-click installer come in later milestones. This page will become a step-by-step guide for parents.
+**Status: milestone 3.** The hub is usable on its own: turn the knob to pick a drill, press to start, and see the results on the Dial. The full phone page, history and the one-click installer come in later milestones. This page will become a step-by-step guide for parents.
 
 ---
 
@@ -45,16 +45,31 @@ While searching, the Dial lists the strongest Bluetooth devices it can hear: nam
 - **No pod names at all:** the pods aren't advertising. Check the app is closed, then switch the pods off and on.
 - **Pods listed but not green:** they advertise differently from what the hub expects. The photo shows how, and I can fix it.
 
-### Buttons (for now)
+### Using the Dial
 
 | Do this | What happens |
 |---|---|
-| Press once | A random pod lights white. Tap it to see your reaction time. |
-| Press twice | Phone mode on/off: the hub's Wi-Fi `PodHub`, plus a QR code to join it |
-| Press three times | Soak test on/off: the hub lights random pods by itself |
-| Hold 1.5 s | Forget the pods and search again |
+| **Turn** the knob on the home screen | Choose a drill: Reaction, Sprint, Sequence |
+| **Press** | Start: 3-2-1 countdown with beeps, then go |
+| **Press** during a drill | Stop early |
+| **Turn** on the results | Results for each pod. **Press** to go back |
+| **Hold 3 s** | Menu: player, drill length, sound, brightness, phone mode, find pods again, auto switch-off, demo pods, switch off |
 
-The knob and a proper menu come in milestone 3.
+The drills:
+
+- **Reaction:** one random pod lights white. Hit it, and the next one lights 0.5 to 2 s later. Never the same pod twice in a row.
+- **Sprint:** as many hits as you can, the next pod lights straight away.
+- **Sequence:** pods light in order 1, 2, 3, 4, for conditioning circuits.
+
+Each light gives you 3 s, or it counts as a miss (double beep). Drills last 30 s by default (change it in the menu: 20, 30, 45 or 60 s). The reaction time shown is the one the pod measured.
+
+**Players:** choose who's training under **Menu → Player**. Personal bests are kept per player, per drill and per drill length, and the results screen flashes **PB!** when one is beaten. Players are called "Player 1" to "Player 4" until the phone page (milestone 4) lets you rename them.
+
+**Switching off:** **Menu → Switch off**, then press to confirm. On battery that cuts the power completely. Switch it back on the way you normally do (the WAKE button). On USB power the Dial can't switch itself off, so it just goes dark until you unplug it. It also switches itself off after **15 minutes** unused, with a 30-second countdown first; any press or turn cancels it. Change or disable this under **Menu → Auto switch-off**. It never switches off during a drill or while a phone is connected.
+
+**Battery level:** the Dial has no way to measure its battery, so the level isn't shown.
+
+**Demo pods:** **Menu → Demo pods** simulates 4 pods with realistic reaction times, so you can try the drills with no pods. The Dial restarts to switch. Demo results never count as personal bests.
 
 ### Milestone 2: the 20-minute stability test
 
