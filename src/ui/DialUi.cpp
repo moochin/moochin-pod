@@ -637,23 +637,25 @@ void DialUi::drawResults() {
     d.setFont(kSmall);
     d.setTextColor(TFT_LIGHTGREY);
     snprintf(buf, sizeof(buf), "%s%s", engine_.config().name, r.aborted ? " (stopped)" : "");
-    d.drawString(buf, cx, cy - 72);
+    d.drawString(buf, cx, cy - 76);
 
+    // Font7 digits are 48 px tall: centred at cy-38 they span cy-62..cy-14,
+    // leaving a clear gap above the "hits" label.
     d.setFont(&fonts::Font7);
     d.setTextColor(TFT_WHITE);
-    d.drawNumber(r.hits, cx, cy - 30);
+    d.drawNumber(r.hits, cx, cy - 38);
     d.setFont(kSmall);
     d.setTextColor(TFT_LIGHTGREY);
-    d.drawString("hits", cx, cy + 4);
+    d.drawString("hits", cx, cy + 2);
 
     d.setFont(kMedium);
     d.setTextColor(TFT_CYAN);
     snprintf(buf, sizeof(buf), "avg %lu ms", (unsigned long)r.averageMs());
-    d.drawString(r.hits ? buf : "no hits", cx, cy + 30);
+    d.drawString(r.hits ? buf : "no hits", cx, cy + 28);
     d.setFont(kSmall);
     d.setTextColor(TFT_WHITE);
     snprintf(buf, sizeof(buf), "best %lu  missed %u", (unsigned long)r.bestMs, r.misses);
-    d.drawString(buf, cx, cy + 54);
+    d.drawString(buf, cx, cy + 52);
   } else {
     const uint8_t p = resultsPage_ - 1;
     d.fillCircle(cx, cy - 52, 20, podColour(p));
@@ -677,10 +679,10 @@ void DialUi::drawResults() {
 
   // Page dots + hint.
   for (uint8_t i = 0; i < pages; i++)
-    d.fillCircle(cx - (pages - 1) * 6 + i * 12, cy + 80, 3, i == resultsPage_ ? TFT_WHITE : TFT_DARKGREY);
+    d.fillCircle(cx - (pages - 1) * 6 + i * 12, cy + 74, 3, i == resultsPage_ ? TFT_WHITE : TFT_DARKGREY);
   d.setFont(&fonts::Font0);
   d.setTextColor(TFT_DARKGREY);
-  d.drawString("turn: pods   press: done", cx, cy + 96);
+  d.drawString("turn: pods  press: done", cx, cy + 90);
   d.endWrite();
   pbBlinkAt_ = 0;  // PB label drawn by loop()
 }
