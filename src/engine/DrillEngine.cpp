@@ -2,6 +2,8 @@
 
 #include <new>
 
+#include "BeepTest.h"
+
 namespace {
 bool due(uint32_t now, uint32_t at) { return (int32_t)(now - at) >= 0; }
 constexpr Rgb kOff{0, 0, 0};
@@ -11,6 +13,7 @@ uint8_t bit(uint8_t p) { return (uint8_t)(1u << p); }
 
 bool DrillEngine::start(const DrillConfig& cfg, uint32_t now) {
   if (pods_.connectedCount() == 0) return false;
+  if (cfg.mode == RoundMode::BeepTest && pods_.connectedCount() < 2) return false;
   cfg_ = cfg;
   result_.~DrillResult();  // reset in place (it's big; avoid a stack temporary)
   new (&result_) DrillResult();
@@ -27,7 +30,12 @@ bool DrillEngine::start(const DrillConfig& cfg, uint32_t now) {
 }
 
 void DrillEngine::stop(uint32_t now) {
-  if (phase_ == DrillPhase::Countdown || phase_ == DrillPhase::Running) finish(now, true);
+  // In a beep test, stopping is how it normally ends (group mode), so it
+  // counts as a finished test. Stopping during the countdown is aborting.
+  if (phase_ == DrillPhase::Running && cfg_.mode == RoundMode::BeepTest)
+    finish(now, false);
+  else if (phase_ == DrillPhase::Countdown || phase_ == DrillPhase::Running)
+    finish(now, true);
 }
 
 void DrillEngine::tick(uint32_t now) {
@@ -44,6 +52,10 @@ void DrillEngine::tick(uint32_t now) {
       break;
 
     case DrillPhase::Running:
+      if (cfg_.mode == RoundMode::BeepTest) {
+        beepTick(now);
+        break;
+      }
       if (cfg_.durationMs && due(now, endsAt_)) {
         finish(now, false);
         break;
@@ -78,6 +90,10 @@ void DrillEngine::tick(uint32_t now) {
 
 void DrillEngine::onTap(const PodTap& tap, uint32_t now) {
   if (phase_ != DrillPhase::Running) return;
+  if (cfg_.mode == RoundMode::BeepTest) {
+    beepTap(tap);
+    return;
+  }
   const uint8_t p = tap.slot;
   const bool litTap = tap.kind != TapKind::WhileOff;
 
@@ -147,6 +163,10 @@ void DrillEngine::beginRunning(uint32_t now) {
   startedAt_ = now;
   endsAt_ = now + cfg_.durationMs;
   emit(DrillEventType::Go);
+  if (cfg_.mode == RoundMode::BeepTest) {
+    beepStart(now);
+    return;
+  }
   startRound(now);  // first light straight after "GO"
 }
 
@@ -165,6 +185,7 @@ void DrillEngine::startRound(uint32_t now) {
     case RoundMode::Single: ok = roundSingle(cfg_.colour); break;
     case RoundMode::ColourCall: ok = roundColourCall(); break;
     case RoundMode::LeftRight: ok = roundLeftRight(); break;
+    case RoundMode::BeepTest: break;  // runs on its own schedule
   }
   if (!ok) {
     endRound();
@@ -278,6 +299,103 @@ void DrillEngine::emit(DrillEventType t, uint8_t slot, uint32_t ms, uint8_t n) {
   }
   events_[(evHead_ + evLen_) % cap] = DrillEvent{t, slot, n, ms};
   evLen_++;
+}
+
+// ------------------------------------------------------------------ beep test
+//
+// Shuttle n runs to pod beepEnds_[beepDest_], which is lit for the whole
+// shuttle; at the beep the next shuttle starts and the other pod lights.
+// Tap mode: tapping the lit pod before the beep is a successful shuttle
+// (the pod turns green). Not making it is a warning; two in a row ends the
+// test. Group mode: every shuttle counts until someone presses Stop.
+// result_.hits = shuttles completed, i.e. the score; misses = warnings.
+
+namespace {
+constexpr Rgb kShuttleColour{0, 160, 255};  // the pod to run to
+constexpr Rgb kMadeItColour{0, 255, 0};     // tapped in time
+}  // namespace
+
+uint32_t DrillEngine::shuttleRemainingMs(uint32_t now) const {
+  if (phase_ != DrillPhase::Running || cfg_.mode != RoundMode::BeepTest || due(now, shuttleEnd_)) return 0;
+  return shuttleEnd_ - now;
+}
+
+uint32_t DrillEngine::shuttleDurationMs() const { return shuttleEnd_ - shuttleStart_; }
+
+void DrillEngine::beepStart(uint32_t at) {
+  // The two ends: the first two connected pods.
+  uint8_t found = 0;
+  for (uint8_t p = 0; p < pods_.maxPods() && found < 2; p++)
+    if (pods_.status(p) == PodStatus::Connected) beepEnds_[found++] = p;
+  beepDest_ = 1;  // start at pod A, run to pod B first
+  beepLevel_ = 1;
+  beepShuttle_ = 1;
+  beepRun_ = 0;
+  beepWarnings_ = 0;
+  beepShuttleStart(at);
+}
+
+void DrillEngine::beepShuttleStart(uint32_t at) {
+  endRound();
+  const int8_t dest = beepEnds_[beepDest_];
+  shuttleStart_ = at;
+  shuttleEnd_ = at + beeptest::shuttleMs(beepLevel_);
+  beepTapped_ = false;
+  // A pod that has dropped out just stays dark; the beeps carry on, and in
+  // tap mode that shuttle is credited (it can't be tapped, not his fault).
+  if (dest >= 0 && pods_.setColour(dest, kShuttleColour, false)) {
+    target_ = dest;
+    litMask_ = bit(dest);
+  } else if (cfg_.beepTaps) {
+    beepTapped_ = true;
+  }
+  litAt_ = at;
+  emit(DrillEventType::Lit, dest >= 0 ? dest : 0, 0, beepLevel_);
+}
+
+void DrillEngine::beepTick(uint32_t now) {
+  if (!due(now, shuttleEnd_)) return;
+  const uint32_t beepAt = shuttleEnd_;  // chain from the schedule, not `now`: no drift
+  const int8_t dest = beepEnds_[beepDest_];
+  beepRun_++;
+  if (!cfg_.beepTaps || beepTapped_) {
+    result_.hits++;
+    beepWarnings_ = 0;
+    if (!beepTapped_ && dest >= 0) logShot(dest, Shot::Hit, beeptest::shuttleMs(beepLevel_));
+  } else {
+    result_.misses++;
+    if (dest >= 0 && dest < DrillResult::kMaxPods) result_.podMisses[dest]++;
+    logShot(dest >= 0 ? dest : 0, Shot::Miss, 0);
+    emit(DrillEventType::Miss, dest >= 0 ? dest : 0);
+    if (++beepWarnings_ >= 2) {  // two in a row: out
+      finish(now, false);
+      return;
+    }
+  }
+  // Next shuttle, next level.
+  if (++beepShuttle_ > beeptest::shuttlesInLevel(beepLevel_)) {
+    if (beepLevel_ >= beeptest::kLevels) {  // ran the whole test
+      finish(now, false);
+      return;
+    }
+    beepLevel_++;
+    beepShuttle_ = 1;
+    emit(DrillEventType::LevelUp, 0, 0, beepLevel_);
+  }
+  beepDest_ ^= 1;
+  beepShuttleStart(beepAt);
+}
+
+void DrillEngine::beepTap(const PodTap& tap) {
+  if (!cfg_.beepTaps || beepTapped_ || tap.kind == TapKind::WhileOff) return;
+  if (target_ < 0 || tap.slot != (uint8_t)target_) return;
+  beepTapped_ = true;
+  pods_.setColour(target_, kMadeItColour, false);
+  const uint32_t ms = tap.podMs;
+  lastHitMs_ = ms;
+  if (tap.slot < DrillResult::kMaxPods) result_.podHits[tap.slot]++;
+  logShot(tap.slot, Shot::Hit, ms);
+  emit(DrillEventType::Hit, tap.slot, ms);
 }
 
 uint32_t DrillEngine::rand32() {  // xorshift32

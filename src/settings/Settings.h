@@ -14,6 +14,7 @@ struct Settings {
   uint8_t autoOffMin = 15;   // switch off after this long unused (0 = never)
   bool demoPods = false;     // simulated pods instead of real ones
   uint8_t lastDrill = 0;     // drill shown on the home screen at start
+  bool beepTaps = true;      // Beep test: tap the pods (false = group, no taps)
   uint8_t leftMask = 0;      // Left/right drill: pods on the left (bitmask, 0 = not set)
   uint8_t player = 0;        // current profile (0..kPlayers-1); results are logged against it
 
@@ -35,6 +36,7 @@ struct Settings {
     lastDrill = p.getUChar("drill", lastDrill);
     player = p.getUChar("player", player);
     leftMask = p.getUChar("left", leftMask);
+    beepTaps = p.getBool("beepTaps", beepTaps);
     p.end();
     if (player >= kPlayers) player = 0;
     if (expectedPods < 1 || expectedPods > 6) expectedPods = 4;
@@ -55,6 +57,7 @@ struct Settings {
     p.putUChar("drill", lastDrill);
     p.putUChar("player", player);
     p.putUChar("left", leftMask);
+    p.putBool("beepTaps", beepTaps);
     p.end();
   }
 

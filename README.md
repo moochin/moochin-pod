@@ -49,8 +49,16 @@ The beeps help when a pod is behind you: a short beep when a pod lights, a doubl
 | **Sequence** | Pods light in order 1, 2, 3, 4. Good for conditioning circuits. |
 | **Colour call** | A **green** and a **red** pod light together. Hit green. Red is a decoy: hitting it counts as **wrong**. Like reading the defence. |
 | **Left / right** | One pod on each side lights. **Blue = hit the left one, yellow = hit the right one.** |
+| **Beep test** | The 20 m shuttle run. Two pods 20 m apart; at each beep, the pod to run to lights. It gets faster every level. |
 
 You get 3 seconds per light, or it's a miss. Drills last **30 seconds** unless you change it. Reaction times are measured by the pods themselves, so they're accurate to the millisecond.
+
+**The beep test:** put two pods **20 m apart** (the first two connected pods are the ends). Choose **Beep test**, press, then pick how to run it:
+
+- **Tap the pods:** for one runner. Tap or kick the lit pod when you get there; it turns **green** if you made it before the beep. Not getting there in time is a warning (low tone). **Two late in a row ends the test**, as in the official rules.
+- **Group, no taps:** for a few of you at once. The pods just swap with each beep; press the Dial (or Stop on the phone) when you're done.
+
+Every beep is a new shuttle; a **triple beep** means a new level. The score is shown as **level.shuttle** (e.g. 8.4), with the distance in metres. The timings follow the standard 20 m test: level 1 at 8.0 km/h, level 2 at 9.0 km/h, then 0.5 km/h faster each level, up to level 21.
 
 **Setting up left and right:** place the pods, then go to **Menu → Left/right pods**. Left pods glow blue and right pods yellow. **Tap a pod to swap its side**, then press the Dial to save.
 

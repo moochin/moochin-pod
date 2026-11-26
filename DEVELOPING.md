@@ -37,6 +37,7 @@ tools/page_test/           fake hub + Playwright screenshots of every phone scre
 test/test_protocol/        Unity tests: checksum, colour, tap parsing
 test/test_engine/          Unity tests: drill engine against MockPodDriver
 test/test_storage/         Unity tests: session log format round trip
+test/test_beeptest/        Unity tests: beep test schedule and engine
 ```
 
 ## BlazePod protocol notes
@@ -75,6 +76,14 @@ When a pod is first assigned a number, its address and manufacturer data are sav
 ### Rounds, decoys and the shot log
 
 Each round has one target and, for Colour call and Left/right, decoys (`RoundMode`). Hitting the target scores the pod-measured ms. Hitting a decoy is a mistake and ends the round. Every outcome is appended to `DrillResult::shots` (up to 400). Left/right reads `DrillConfig::leftMask`, which comes from `Settings::leftMask` (0 means pods 1 to n/2 are left). The setup screen lights the pods in the cue colours and toggles a pod's side when it's tapped (`DialUi::onTap`).
+
+### Beep test
+
+- **Schedule:** `engine/BeepTest.h`. Level 1 is 8.0 km/h, level 2 is 9.0, then +0.5 per level. Shuttles per level are 7, 8, 8, 9, 9, 10, 10, 11, 11, 11, 12, 12, 13, 13, 13, 14, 14, 15, 15, 16, 16. A shuttle takes 72 / km/h seconds.
+- **Engine:** `RoundMode::BeepTest` runs on its own clock. Each shuttle is scheduled from the previous one's end time, not from `now`, so the beeps don't drift whatever the loop timing; a test checks this over all 21 levels. The destination pod is lit for the whole shuttle and turns green when tapped.
+- **Scoring:** `result.hits` holds shuttles completed, which is the score (`scoreFor()` converts it to level.shuttle); `misses` holds late shuttles.
+- **Modes:** in tap mode, two late shuttles in a row finish the test. In group mode every shuttle counts and Stop finishes the test (not aborted), so it's saved and counts towards personal bests. If the destination pod has dropped out, that shuttle is credited.
+- **Sounds:** `DialUi` composes them on the shuttle beep: one beep, then a triple beep for a new level or a low tone for a late shuttle.
 
 ### History storage
 

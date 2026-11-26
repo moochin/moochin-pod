@@ -16,6 +16,7 @@ enum class RoundMode : uint8_t {
   ColourCall,  // target in `colour` (green) + a decoy in `decoyColour` (red)
   LeftRight,   // one pod on each side, both in the cue colour:
                // blue = hit the LEFT one, yellow = hit the RIGHT one
+  BeepTest,    // 20 m shuttles between two pods, timed by the beep test schedule
 };
 
 // How a session is judged a personal best.
@@ -24,7 +25,7 @@ enum class PbMetric : uint8_t {
   MostHits,       // more hits in the same time
 };
 
-enum class DrillIcon : uint8_t { Target, Sprint, Sequence, ColourCall, LeftRight };
+enum class DrillIcon : uint8_t { Target, Sprint, Sequence, ColourCall, LeftRight, BeepTest };
 
 struct DrillConfig {
   const char* id;    // stable key for personal bests and history, e.g. "reaction"
@@ -41,6 +42,7 @@ struct DrillConfig {
   RoundMode mode = RoundMode::Single;
   Rgb decoyColour = {255, 0, 0};
   uint8_t leftMask = 0;  // LeftRight: bit i set = pod i is on the left
+  bool beepTaps = true;  // BeepTest: tap the pod at each end (false = group, no taps)
 };
 
 // Left/right cue colours.

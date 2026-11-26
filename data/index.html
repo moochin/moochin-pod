@@ -93,6 +93,8 @@ a.big{color:var(--fg);text-decoration:none;text-align:center;display:flex;align-
 .danger{color:var(--stop)}
 input[type=file]{min-height:auto;padding:12px;border-style:dashed}
 .note{color:var(--dim);font-size:15px;margin:8px 0 0}
+.bar i.reached{background:var(--go)}
+.bar i.beep{transition:none}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -115,10 +117,17 @@ input[type=file]{min-height:auto;padding:12px;border-style:dashed}
 
   <button class="big second small" id="groupsBtn" hidden>Set left / right pods</button>
 
-  <h2>Length</h2>
+  <h2 id="lengthsH">Length</h2>
   <div class="seg" id="lengths"></div>
+  <p class="hint" id="beepHint" hidden>Put two pods <b>20 m apart</b>. At each beep, run to the pod that lights.</p>
 
   <button class="big go" id="startBtn">Start</button>
+  <div id="beepStart" hidden>
+    <button class="big go" id="beepTapBtn">Start: tap the pods</button>
+    <p class="note">Tap or kick the lit pod each time. Two late in a row ends the test.</p>
+    <button class="big go" id="beepGroupBtn">Start: group, no taps</button>
+    <p class="note">For a few of you at once. Press Stop when you're done.</p>
+  </div>
   <button class="big second" id="historyBtn">History</button>
   <button class="big second small" id="settingsBtn">Settings</button>
 
@@ -138,9 +147,10 @@ input[type=file]{min-height:auto;padding:12px;border-style:dashed}
   <div id="liveWrap" hidden>
     <div class="label" id="runName"></div>
     <div class="hits" id="runHits">0</div>
-    <div class="label">hits</div>
+    <div class="label" id="runHitsLabel">hits</div>
     <div class="bar"><i id="runBar"></i></div>
-    <div class="stats">
+    <div class="stats" id="beepRunStats" hidden></div>
+    <div class="stats" id="runStats">
       <div class="stat"><b id="runLast">–</b><span>last (ms)</span></div>
       <div class="stat"><b id="runAvg">–</b><span>average (ms)</span></div>
       <div class="stat"><b id="runMiss">0</b><span id="runMissLabel">missed</span></div>
@@ -155,14 +165,15 @@ input[type=file]{min-height:auto;padding:12px;border-style:dashed}
   <div class="label" id="resName"></div>
   <div class="pb" id="resPb" hidden>New PB!</div>
   <div class="hits" id="resHits">0</div>
-  <div class="label">hits</div>
-  <div class="stats">
+  <div class="label" id="resHitsLabel">hits</div>
+  <div class="stats" id="beepResStats" hidden></div>
+  <div class="stats" id="resStats">
     <div class="stat"><b id="resAvg">–</b><span>average (ms)</span></div>
     <div class="stat"><b id="resBest">–</b><span>best (ms)</span></div>
     <div class="stat"><b id="resWorst">–</b><span>slowest (ms)</span></div>
     <div class="stat"><b id="resMiss">0</b><span id="resMissLabel">missed</span></div>
   </div>
-  <table>
+  <table id="resTable">
     <thead><tr><th>Pod</th><th>Hits</th><th>Avg</th><th>Best</th><th>Missed</th><th id="resWrongTh">Wrong</th></tr></thead>
     <tbody id="resPods"></tbody>
   </table>
@@ -253,6 +264,20 @@ function setConn(on) {
   $('offline').hidden = on;
 }
 
+// ---------------------------------------------------------------- beep test
+const BEEP_SHUTTLES = [7, 8, 8, 9, 9, 10, 10, 11, 11, 11, 12, 12, 13, 13, 13, 14, 14, 15, 15, 16, 16];
+// Score for `n` shuttles completed: "level.shuttle" of the last one.
+function beepScore(n) {
+  if (!n) return '1.0';
+  for (let l = 0; l < BEEP_SHUTTLES.length; l++) {
+    if (n <= BEEP_SHUTTLES[l]) return `${l + 1}.${n}`;
+    n -= BEEP_SHUTTLES[l];
+  }
+  return `21.${BEEP_SHUTTLES[20]}`;
+}
+const isBeep = () => st && st.drills[st.drill] && st.drills[st.drill].metric === 'beep';
+const stat = (v, label, id) => `<div class="stat"><b${id ? ` id="${id}"` : ''}>${v}</b><span>${label}</span></div>`;
+
 // ---------------------------------------------------------------- render
 const fmt = (ms) => ms ? String(ms) : '–';
 function show(id) { for (const s of ['home', 'run', 'res', 'hist', 'set']) $(s).hidden = s !== id; }
@@ -286,9 +311,14 @@ function renderHome() {
     `<button class="tile${i === st.drill ? ' sel' : ''}" data-drill="${i}"><b>${d.name}</b><small>${d.desc}</small></button>`).join('');
   $('lengths').innerHTML = st.secondsOptions.map((s) =>
     `<button class="${s === st.seconds ? 'sel' : ''}" data-sec="${s}">${s} s</button>`).join('');
+  const beep = isBeep();
+  $('lengthsH').hidden = $('lengths').hidden = beep;
+  $('beepHint').hidden = !beep;
+  $('beepStart').hidden = !beep || connected < 2;
   const b = $('startBtn');
-  b.disabled = connected === 0;
-  b.textContent = connected ? 'Start' : 'Waiting for pods…';
+  b.hidden = beep && connected >= 2;
+  b.disabled = beep ? connected < 2 : connected === 0;
+  b.textContent = beep && connected ? 'Needs 2 pods' : connected ? 'Start' : 'Waiting for pods…';
 }
 
 function renderRun() {
@@ -300,6 +330,21 @@ function renderRun() {
   $('cdName').textContent = name;
   $('runName').textContent = name;
   if (cd) { $('cd').textContent = st.countdown; return; }
+  $('beepRunStats').hidden = !r.beep;
+  $('runStats').hidden = !!r.beep;
+  $('runBar').classList.toggle('beep', !!r.beep);
+  if (r.beep) {
+    $('runHits').textContent = r.level;
+    $('runHitsLabel').textContent = `level · shuttle ${r.shuttle} of ${r.shuttles}`;
+    $('runBar').classList.toggle('reached', !!r.reached);
+    $('beepRunStats').innerHTML =
+      stat((r.kmh10 / 10).toFixed(1), 'km/h') + stat(r.metres, 'metres') +
+      (r.taps ? stat(r.misses, 'late') : stat(r.hits, 'shuttles')) + stat('–', 'seconds to the beep', 'beepLeft');
+    tickTimer();
+    return;
+  }
+  $('runHitsLabel').textContent = 'hits';
+  $('runBar').classList.remove('reached');
   $('runHits').textContent = r.hits;
   $('runLast').textContent = fmt(r.lastMs);
   $('runAvg').textContent = fmt(r.avgMs);
@@ -311,6 +356,15 @@ function renderRun() {
 
 // Smooth the time bar between updates using the phone's clock.
 function tickTimer() {
+  if (st && st.phase === 'running' && st.run && st.run.beep) {
+    // The shuttle bar fills towards the beep.
+    const left = Math.max(0, st.run.shuttleLeftMs - (performance.now() - rxAt));
+    const dur = st.run.shuttleMs || 1;
+    $('runBar').style.width = (100 * (1 - left / dur)).toFixed(1) + '%';
+    const el = $('beepLeft');
+    if (el) el.textContent = (left / 1000).toFixed(1);
+    return;
+  }
   if (!st || st.phase !== 'running' || !st.run || !st.run.durationMs) return;
   const left = Math.max(0, st.run.remainingMs - (performance.now() - rxAt));
   $('runBar').style.width = (100 * left / st.run.durationMs).toFixed(1) + '%';
@@ -322,6 +376,17 @@ function renderRes() {
   const r = st.result || {};
   $('resName').textContent = (st.drills[st.drill] ? st.drills[st.drill].name : '') + (r.aborted ? ' (stopped)' : '');
   $('resPb').hidden = !r.pb;
+  $('beepResStats').hidden = !r.beep;
+  $('resStats').hidden = $('resTable').hidden = !!r.beep;
+  if (r.beep) {
+    $('resName').textContent = 'Beep test' + (r.taps ? '' : ' (group)');
+    $('resHits').textContent = `${r.level}.${r.shuttle}`;
+    $('resHitsLabel').textContent = 'level . shuttle';
+    $('beepResStats').innerHTML = stat(r.metres, 'metres') + stat(r.hits, 'shuttles') +
+      (r.taps ? stat(r.misses, 'late') : '');
+    return;
+  }
+  $('resHitsLabel').textContent = 'hits';
   $('resHits').textContent = r.hits;
   $('resAvg').textContent = fmt(r.avgMs);
   $('resBest').textContent = fmt(r.bestMs);
@@ -362,6 +427,9 @@ function renderHist() {
     const d = st.drills[s.drill] || {name: '?'};
     const tags = (s.pb ? '<span class="tag pb">PB</span>' : '') + (s.aborted ? '<span class="tag">stopped</span>' : '') +
       (s.demo ? '<span class="tag">demo</span>' : '');
+    if (d.metric === 'beep')
+      return `<div class="hrow"><div><b>${d.name}</b>${tags}<small>${s.time || 'no date'}</small></div>` +
+        `<div class="num"><b>Level ${beepScore(s.hits)}</b><small>${s.hits * 20} m</small></div></div>`;
     return `<div class="hrow"><div><b>${d.name}</b>${tags}<small>${s.time || 'no date'} · ${s.sec} s</small></div>` +
       `<div class="num"><b>${s.hits} hits</b><small>${s.avg ? s.avg + ' ms avg' : '–'}${d.decoys ? ' · ' + s.mistakes + ' wrong' : ''}</small></div></div>`;
   }).join('') : '<p class="hint">No sessions yet. Finish a drill and it shows up here.</p>';
@@ -372,8 +440,8 @@ function renderHist() {
 function renderChart(sessions) {
   const d = st.drills[histDrill];
   const metric = d ? d.metric : 'avg';
-  const pts = sessions.filter((s) => s.drill === histDrill && !s.aborted && !s.demo && (metric === 'hits' || s.avg))
-    .slice(0, 30).reverse().map((s) => metric === 'hits' ? s.hits : s.avg);
+  const pts = sessions.filter((s) => s.drill === histDrill && !s.aborted && !s.demo && (metric !== 'avg' || s.avg))
+    .slice(0, 30).reverse().map((s) => metric === 'avg' ? s.avg : s.hits);
   const svg = $('histChart');
   if (pts.length < 2) {
     svg.innerHTML = '';
@@ -392,7 +460,9 @@ function renderChart(sessions) {
     `<path d="${line}" fill="none" stroke="${acc}" stroke-width="3" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` +
     pts.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${acc}"/>`).join('');
   const first = pts[0], last = pts[pts.length - 1];
-  $('histChartNote').textContent = metric === 'hits'
+  $('histChartNote').textContent = metric === 'beep'
+    ? `Level reached, last ${pts.length}: ${beepScore(first)} → ${beepScore(last)}. Higher is better.`
+    : metric === 'hits'
     ? `Hits per session, last ${pts.length}: ${first} → ${last}. Higher is better.`
     : `Average reaction (ms), last ${pts.length}: ${first} → ${last}. Lower is better.`;
 }
@@ -464,6 +534,8 @@ document.addEventListener('click', (e) => {
   }
 });
 $('startBtn').onclick = () => send({cmd: 'start'});
+$('beepTapBtn').onclick = () => send({cmd: 'start', taps: 1});
+$('beepGroupBtn').onclick = () => send({cmd: 'start', taps: 0});
 $('groupsBtn').onclick = () => {
   send({cmd: 'groups'});
   alert('On the pods: tap a pod to swap it between left (blue) and right (yellow). Then press the Dial to save.');

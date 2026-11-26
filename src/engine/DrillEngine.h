@@ -25,6 +25,7 @@ enum class DrillEventType : uint8_t {
   Miss,      // slot (target) timed out
   Mistake,   // slot = decoy that was hit
   WrongTap,  // an unlit pod was tapped
+  LevelUp,   // beep test: n = new level
   Finished,
 };
 
@@ -89,6 +90,15 @@ class DrillEngine {
   uint32_t remainingMs(uint32_t now) const;  // time-based drills
   uint32_t lastHitMs() const { return lastHitMs_; }
 
+  // Beep test progress (RoundMode::BeepTest).
+  bool isBeepTest() const { return cfg_.mode == RoundMode::BeepTest; }
+  uint8_t beepLevel() const { return beepLevel_; }
+  uint8_t beepShuttle() const { return beepShuttle_; }    // 1-based, the shuttle being run
+  uint16_t beepRun() const { return beepRun_; }           // shuttles run (completed or not)
+  uint32_t shuttleRemainingMs(uint32_t now) const;
+  uint32_t shuttleDurationMs() const;
+  bool shuttleReached() const { return beepTapped_; }
+
  private:
   void beginRunning(uint32_t now);
   void finish(uint32_t now, bool aborted);
@@ -99,6 +109,10 @@ class DrillEngine {
   bool roundColourCall();
   bool roundLeftRight();
   int8_t pickPod(uint8_t allowedMask, int8_t avoid);
+  void beepStart(uint32_t at);
+  void beepShuttleStart(uint32_t at);
+  void beepTick(uint32_t now);
+  void beepTap(const PodTap& tap);
   uint8_t connectedMask() const;
   bool repsDone() const;
   void logShot(uint8_t pod, Shot::Kind kind, uint32_t ms);
@@ -121,6 +135,16 @@ class DrillEngine {
   uint8_t litMask_ = 0;
   int8_t lastPod_ = -1;
   uint32_t lastHitMs_ = 0;
+
+  // Beep test state.
+  int8_t beepEnds_[2] = {-1, -1};  // the two pods
+  uint8_t beepDest_ = 0;           // index into beepEnds_: the pod being run to
+  uint8_t beepLevel_ = 1;
+  uint8_t beepShuttle_ = 1;
+  uint16_t beepRun_ = 0;
+  uint32_t shuttleStart_ = 0, shuttleEnd_ = 0;
+  bool beepTapped_ = false;
+  uint8_t beepWarnings_ = 0;  // in a row
 
   DrillEvent events_[16];
   uint8_t evHead_ = 0, evLen_ = 0;

@@ -44,7 +44,8 @@ class DialUi {
   void selectPlayer(uint8_t i);
   void setDrillSeconds(uint8_t seconds);
   void reloadPlayerName();
-  bool startSelected(uint32_t now);  // from home or results
+  // From home or results. taps: beep test mode (1 tap, 0 group, -1 ask/last).
+  bool startSelected(uint32_t now, int taps = -1);
   void stopDrill(uint32_t now);
   void closeResults();
   void noteActivity(uint32_t now) { lastActivityAt_ = now; }
@@ -59,7 +60,7 @@ class DialUi {
   uint8_t leftMask() const;
 
  private:
-  enum class Screen : uint8_t { Home, Countdown, Running, Results, Menu, ConfirmOff, AutoOffWarn, PhoneQr, Groups, Updating };
+  enum class Screen : uint8_t { Home, Countdown, Running, Results, Menu, ConfirmOff, AutoOffWarn, PhoneQr, Groups, Updating, BeepChoice };
   enum MenuItem : uint8_t {
     kBack, kPlayer, kDrillLength, kGroups, kSound, kBrightness, kPhone, kRescan, kAutoOff, kDemo, kShutDown, kMenuCount
   };
@@ -68,7 +69,7 @@ class DialUi {
   void handleInput(uint32_t now);
   void handleEngineEvents(uint32_t now);
   void handleAutoOff(uint32_t now);
-  void startDrill(uint32_t now);
+  void startDrill(uint32_t now, bool skipBeepChoice = false);
   void activateMenuItem(uint32_t now);
   void shutDown();
 
@@ -87,6 +88,10 @@ class DialUi {
   void drawAutoOffWarn(uint32_t secondsLeft);
   void drawPhoneQr();
   void drawGroups();
+  void drawBeepChoice();
+  void drawBeepRunning();
+  void updateBeepRunning(uint32_t now, bool force);
+  void drawBeepResults();
   void showGroupsOnPods();
   void endGroupSetup(bool save);
   void menuLabel(uint8_t item, char* label, size_t ln, char* value, size_t vn);
@@ -119,4 +124,7 @@ class DialUi {
   char playerName_[16] = "";
   uint8_t groupsEdit_ = 0;  // working copy while setting up left/right
   int8_t updatePct_ = -1;
+  bool beepChoiceTaps_ = true;   // highlighted option on the choice screen
+  bool beepLevelUp_ = false;     // sound cues composed on the shuttle beep
+  bool beepWarned_ = false;
 };

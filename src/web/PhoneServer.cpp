@@ -155,6 +155,7 @@ static void onWsData(AsyncWebSocketClient* client, const uint8_t* data, size_t l
     rememberIp((uint32_t)client->remoteIP());
   } else if (!strcmp(cmd, "start")) {
     c.type = WebCmd::Start;
+    c.value = doc["taps"] | -1;  // beep test: 1 tap the pods, 0 group
   } else if (!strcmp(cmd, "stop")) {
     c.type = WebCmd::Stop;
   } else if (!strcmp(cmd, "done")) {

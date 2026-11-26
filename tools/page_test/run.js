@@ -15,7 +15,8 @@ const base = {
     { name: 'Sprint', desc: 'As many hits as you can. Next pod lights straight away.', metric: 'hits', decoys: false },
     { name: 'Sequence', desc: 'Pods light in order 1, 2, 3... for circuits.', metric: 'hits', decoys: false },
     { name: 'Colour call', desc: 'Green and red light together. Hit green. Red is a decoy.', metric: 'avg', decoys: true },
-    { name: 'Left / right', desc: 'Blue = hit the left pod, yellow = hit the right pod.', metric: 'avg', decoys: true }],
+    { name: 'Left / right', desc: 'Blue = hit the left pod, yellow = hit the right pod.', metric: 'avg', decoys: true },
+    { name: 'Beep test', desc: '20 m shuttles between two pods. Beat the beep; it gets faster every level.', metric: 'beep', decoys: false }],
   leftMask: 3,
   version: 'v1.0.0',
   settings: { sound: true, bright: 2, autoOff: 15, autoOffOptions: [5, 10, 15, 30, 0], pods: 4, demo: false },
@@ -35,7 +36,7 @@ const srv = http.createServer((req, res) => {
     res.setHeader('content-type', 'application/json');
     const sessions = [];
     for (let i = 0; i < 12; i++) sessions.push({ id: 40 - i, time: `2026-11-${String(27 - i).padStart(2, '0')} 17:${10 + i}`, player: 0,
-      drill: i % 3 === 0 ? 3 : 0, sec: 30, hits: 20 + (i % 5), misses: i % 3, mistakes: i % 3 === 0 ? 2 : 0,
+      drill: i % 4 === 1 ? 5 : i % 3 === 0 ? 3 : 0, sec: 30, hits: 20 + (i % 5), misses: i % 3, mistakes: i % 3 === 0 ? 2 : 0,
       avg: 420 + i * 9 + (i % 2) * 25, best: 280 + i * 3, aborted: i === 4, pb: i === 0, demo: i === 7 });
     return res.end(JSON.stringify({ sessions }));
   }
@@ -88,6 +89,24 @@ srv.listen(0, async () => {
     await p.screenshot({ path: `${out}/10-history-${scheme}.png`, fullPage: true });
     await p.click('[data-hdrill="3"]'); await p.waitForTimeout(200);
     await p.screenshot({ path: `${out}/11-history-colourcall-${scheme}.png` });
+    await p.click('#histBack'); await p.waitForTimeout(200);
+    push({ ...base }); await p.waitForTimeout(200);
+    // Beep test: home with the two start buttons, running, results, history
+    push({ ...base, drill: 5 }); await p.waitForTimeout(200);
+    await p.screenshot({ path: `${out}/13-beep-home-${scheme}.png`, fullPage: true });
+    if (scheme === 'light') { await p.click('#beepTapBtn'); await p.click('#beepGroupBtn'); }
+    push({ ...base, drill: 5, phase: 'running', run: { hits: 30, misses: 1, lastMs: 0, avgMs: 0, remainingMs: 0, durationMs: 0, lit: 1,
+      beep: true, taps: true, level: 5, shuttle: 4, shuttles: 9, kmh10: 105, shuttleLeftMs: 3000, shuttleMs: 6857, reached: false, metres: 660 } });
+    await p.waitForTimeout(400);
+    await p.screenshot({ path: `${out}/14-beep-running-${scheme}.png` });
+    push({ ...base, drill: 5, phase: 'finished', result: { hits: 65, misses: 2, mistakes: 0, avgMs: 0, bestMs: 0, worstMs: 0, aborted: false, pb: true,
+      beep: true, taps: true, level: 8, shuttle: 4, metres: 1300, pods: [] } });
+    await p.waitForTimeout(200);
+    await p.screenshot({ path: `${out}/15-beep-results-${scheme}.png` });
+    push({ ...base, drill: 5 }); await p.waitForTimeout(200);
+    await p.click('#historyBtn'); await p.waitForTimeout(400);
+    await p.click('[data-hdrill="5"]'); await p.waitForTimeout(200);
+    await p.screenshot({ path: `${out}/16-beep-history-${scheme}.png` });
     await p.click('#histBack'); await p.waitForTimeout(200);
     push({ ...base }); await p.waitForTimeout(200);
     await p.click('#settingsBtn'); await p.waitForTimeout(200);

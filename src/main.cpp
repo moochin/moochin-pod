@@ -7,6 +7,7 @@
 
 #include "board/Board.h"
 #include "engine/DrillEngine.h"
+#include "engine/BeepTest.h"
 #include "engine/Drills.h"
 #include "pods/BlazePodDriver.h"
 #include "pods/MockPodDriver.h"
@@ -91,10 +92,11 @@ static void buildState(String& out) {
     d["name"] = drills::byIndex(i, 0).name;
     d["desc"] = drills::description(i);
     const DrillConfig cfg = drills::byIndex(i, 0);
-    d["metric"] = cfg.pb == PbMetric::MostHits ? "hits" : "avg";
+    d["metric"] = cfg.mode == RoundMode::BeepTest ? "beep" : cfg.pb == PbMetric::MostHits ? "hits" : "avg";
     d["decoys"] = drills::hasDecoys(cfg);
   }
   doc["leftMask"] = ui->leftMask();
+  doc["beepTaps"] = settings.beepTaps;
   doc["seconds"] = settings.drillSeconds;
   JsonArray so = doc["secondsOptions"].to<JsonArray>();
   for (uint8_t s : Settings::kDrillSecondsOptions) so.add(s);
@@ -133,6 +135,18 @@ static void buildState(String& out) {
     run["remainingMs"] = engine->remainingMs(now);
     run["durationMs"] = engine->config().durationMs;
     run["lit"] = engine->litPod();
+    if (engine->isBeepTest()) {
+      run["beep"] = true;
+      run["taps"] = engine->config().beepTaps;
+      run["level"] = engine->beepLevel();
+      run["shuttle"] = engine->beepShuttle();
+      run["shuttles"] = beeptest::shuttlesInLevel(engine->beepLevel());
+      run["kmh10"] = beeptest::speedTenths(engine->beepLevel());
+      run["shuttleLeftMs"] = engine->shuttleRemainingMs(now);
+      run["shuttleMs"] = engine->shuttleDurationMs();
+      run["reached"] = engine->shuttleReached();
+      run["metres"] = engine->beepRun() * beeptest::kShuttleMetres;
+    }
   } else if (ph == DrillPhase::Finished) {
     JsonObject res = doc["result"].to<JsonObject>();
     res["hits"] = r.hits;
@@ -143,6 +157,14 @@ static void buildState(String& out) {
     res["worstMs"] = r.worstMs;
     res["aborted"] = r.aborted;
     res["pb"] = ui->lastResultWasPb();
+    if (engine->isBeepTest()) {
+      const beeptest::Score sc = beeptest::scoreFor(r.hits);
+      res["beep"] = true;
+      res["taps"] = engine->config().beepTaps;
+      res["level"] = sc.level;
+      res["shuttle"] = sc.shuttle;
+      res["metres"] = r.hits * beeptest::kShuttleMetres;
+    }
     JsonArray rp = res["pods"].to<JsonArray>();
     for (uint8_t i = 0; i < pods->maxPods() && i < DrillResult::kMaxPods; i++) {
       JsonObject p = rp.add<JsonObject>();
@@ -183,10 +205,10 @@ static void handlePhoneCommands(uint32_t now) {
     ui->noteActivity(now);
     switch (c.type) {
       case WebCmd::Hello: setClockFromPhone(c.time); break;
-      case WebCmd::Start: ui->startSelected(now); break;
+      case WebCmd::Start: ui->startSelected(now, c.value); break;
       case WebCmd::Stop: ui->stopDrill(now); break;
       case WebCmd::Done: ui->closeResults(); break;
-      case WebCmd::Repeat: ui->startSelected(now); break;
+      case WebCmd::Repeat: ui->startSelected(now, settings.beepTaps ? 1 : 0); break;
       case WebCmd::Drill: if (c.value >= 0) ui->selectDrill((uint8_t)c.value); break;
       case WebCmd::Seconds: if (c.value > 0) ui->setDrillSeconds((uint8_t)c.value); break;
       case WebCmd::Player: if (c.value >= 0) ui->selectPlayer((uint8_t)c.value); break;
@@ -224,8 +246,13 @@ static void handlePhoneCommands(uint32_t now) {
   const DrillPhase ph = engine->phase();
   const bool active = ph == DrillPhase::Countdown || ph == DrillPhase::Running;
   const DrillResult& r = engine->result();
+  static uint16_t lastRun = 0;
+  static bool lastReached = false;
   const bool eventChange = ph != lastPhase || r.hits != lastHits || r.misses != lastMisses ||
+                           engine->beepRun() != lastRun || engine->shuttleReached() != lastReached ||
                            (ph == DrillPhase::Countdown && now - lastPush > 300);
+  lastRun = engine->beepRun();
+  lastReached = engine->shuttleReached();
   if (phone.takeNewClient() || changed || eventChange || now - lastPush > (active ? 1000u : 2000u)) {
     lastPush = now;
     lastPhase = ph;

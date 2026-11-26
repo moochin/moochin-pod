@@ -45,8 +45,21 @@ inline DrillConfig leftRight(uint32_t durationMs, uint8_t leftMask) {
   return c;
 }
 
-constexpr uint8_t kCount = 5;
+// Beep test: two pods 20 m apart. At each beep the pod to run to lights;
+// it gets faster every level. taps = true: tap the lit pod to count each
+// shuttle, two late in a row ends it. taps = false: group mode, no taps,
+// press Stop when done. Score = shuttles completed (shown as level.shuttle).
+inline DrillConfig beepTest(bool taps) {
+  DrillConfig c{"beeptest", "Beep test", DrillIcon::BeepTest, 0, 0, 0, 0, 0,
+                PickMode::Sequence, Rgb{0, 160, 255}, PbMetric::MostHits};
+  c.mode = RoundMode::BeepTest;
+  c.beepTaps = taps;
+  return c;
+}
+
+constexpr uint8_t kCount = 6;
 constexpr uint8_t kLeftRightIndex = 4;
+constexpr uint8_t kBeepTestIndex = 5;
 
 // Default split when no groups have been set: first half of the pods left.
 inline uint8_t defaultLeftMask(uint8_t pods) {
@@ -55,8 +68,9 @@ inline uint8_t defaultLeftMask(uint8_t pods) {
   return m ? m : 1;
 }
 
-inline DrillConfig byIndex(uint8_t i, uint32_t durationMs, uint8_t leftMask = 0x03) {
+inline DrillConfig byIndex(uint8_t i, uint32_t durationMs, uint8_t leftMask = 0x03, bool beepTaps = true) {
   switch (i % kCount) {
+    case 5: return beepTest(beepTaps);
     case 1: return sprint(durationMs);
     case 2: return sequence(durationMs);
     case 3: return colourCall(durationMs);
@@ -72,11 +86,14 @@ inline const char* description(uint8_t i) {
     case 2: return "Pods light in order 1, 2, 3... for circuits.";
     case 3: return "Green and red light together. Hit green. Red is a decoy.";
     case 4: return "Blue = hit the left pod, yellow = hit the right pod.";
+    case 5: return "20 m shuttles between two pods. Beat the beep; it gets faster every level.";
     default: return "Hit the pod that lights. Random gaps, never the same pod twice.";
   }
 }
 
 // Drills that have decoys, so "wrong pod" mistakes are worth showing.
-inline bool hasDecoys(const DrillConfig& c) { return c.mode != RoundMode::Single; }
+inline bool hasDecoys(const DrillConfig& c) {
+  return c.mode == RoundMode::ColourCall || c.mode == RoundMode::LeftRight;
+}
 
 }  // namespace drills

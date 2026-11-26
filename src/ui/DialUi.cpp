@@ -1,5 +1,6 @@
 #include "DialUi.h"
 
+#include "../engine/BeepTest.h"
 #include "../engine/Drills.h"
 #include "../storage/PersonalBests.h"
 #include "../storage/Players.h"
@@ -141,7 +142,7 @@ void DialUi::handleInput(uint32_t now) {
         menuSel_ = kBack;
         go(Screen::Menu);
       } else if (turn) {
-        uint8_t pages = 1 + pods_.maxPods();
+        uint8_t pages = engine_.isBeepTest() ? 1 : 1 + pods_.maxPods();
         resultsPage_ = (uint8_t)((resultsPage_ + pages + (turn % pages)) % pages);
         board_.beep(3000, 8);
         dirty_ = true;
@@ -181,6 +182,20 @@ void DialUi::handleInput(uint32_t now) {
     case Screen::Updating:
       break;
 
+    case Screen::BeepChoice:
+      if (turn) {
+        beepChoiceTaps_ = !beepChoiceTaps_;
+        board_.beep(3000, 8);
+        dirty_ = true;
+      } else if (press) {
+        settings_.beepTaps = beepChoiceTaps_;
+        settings_.save();
+        startDrill(now, true);
+      } else if (hold) {
+        go(Screen::Home);
+      }
+      break;
+
     case Screen::Groups:
       if (press) endGroupSetup(true);
       if (hold) endGroupSetup(false);
@@ -188,14 +203,23 @@ void DialUi::handleInput(uint32_t now) {
   }
 }
 
-void DialUi::startDrill(uint32_t now) {
-  if (pods_.connectedCount() == 0) {
-    snprintf(hint_, sizeof(hint_), "No pods connected yet");
+void DialUi::startDrill(uint32_t now, bool skipBeepChoice) {
+  const bool beep = drill_ == drills::kBeepTestIndex;
+  if (pods_.connectedCount() < (beep ? 2 : 1)) {
+    snprintf(hint_, sizeof(hint_), beep ? "Beep test needs 2 pods" : "No pods connected yet");
     hintUntil_ = now + 2500;
     board_.play({{400, 120}, {0, 60}, {300, 160}});
+    if (screen_ != Screen::Home) go(Screen::Home);
     dirty_ = true;
     return;
   }
+  // Beep test: choose tap the pods / group (no taps) first.
+  if (beep && !skipBeepChoice) {
+    beepChoiceTaps_ = settings_.beepTaps;
+    go(Screen::BeepChoice);
+    return;
+  }
+  beepLevelUp_ = beepWarned_ = false;
   const DrillConfig cfg = currentDrill();
   if (engine_.start(cfg, now)) {
     resultsPage_ = 0;
@@ -207,7 +231,7 @@ void DialUi::startDrill(uint32_t now) {
 }
 
 DrillConfig DialUi::currentDrill() const {
-  return drills::byIndex(drill_, (uint32_t)settings_.drillSeconds * 1000, leftMask());
+  return drills::byIndex(drill_, (uint32_t)settings_.drillSeconds * 1000, leftMask(), settings_.beepTaps);
 }
 
 uint8_t DialUi::leftMask() const {
@@ -229,8 +253,25 @@ void DialUi::handleEngineEvents(uint32_t now) {
         go(Screen::Running);
         break;
       case DrillEventType::Lit:
+        if (engine_.isBeepTest()) {
+          // The shuttle beep, exactly on time, then any cue: a triple beep
+          // for a new level, a low tone for a warning (didn't make it).
+          if (beepLevelUp_)
+            board_.play({{1400, 250}, {0, 90}, {1400, 150}, {0, 90}, {1400, 150}});
+          else if (beepWarned_)
+            board_.play({{1400, 250}, {0, 90}, {350, 450}});
+          else
+            board_.play({{1400, 250}});
+          beepLevelUp_ = beepWarned_ = false;
+          updateRunning(now, true);
+          break;
+        }
         // Short beep: helps when the lit pod is behind the player.
         board_.play({{2400, 40}}, false);
+        break;
+      case DrillEventType::LevelUp:
+        ESP_LOGI(TAG, "beep test level %u", ev.n);
+        beepLevelUp_ = true;
         break;
       case DrillEventType::Hit:
         ESP_LOGI(TAG, "hit pod %u %lu ms", ev.slot + 1, (unsigned long)ev.ms);
@@ -238,6 +279,10 @@ void DialUi::handleEngineEvents(uint32_t now) {
         break;
       case DrillEventType::Miss:
         ESP_LOGI(TAG, "miss pod %u", ev.slot + 1);
+        if (engine_.isBeepTest()) {
+          beepWarned_ = true;  // sounded with the next shuttle beep
+          break;
+        }
         board_.play({{440, 80}, {0, 50}, {440, 80}});
         updateRunning(now, true);
         break;
@@ -456,6 +501,7 @@ void DialUi::drawFull() {
     case Screen::PhoneQr: drawPhoneQr(); break;
     case Screen::Groups: drawGroups(); break;
     case Screen::Updating: showUpdate(updatePct_); break;
+    case Screen::BeepChoice: drawBeepChoice(); break;
   }
 }
 
@@ -507,6 +553,13 @@ void DialUi::drawIcon(DrillIcon icon, int cx, int cy, uint16_t c) {
       d.fillTriangle(cx - 30, cy, cx - 8, cy - 16, cx - 8, cy + 16, rgb(kCueLeft.r, kCueLeft.g, kCueLeft.b));
       d.fillTriangle(cx + 30, cy, cx + 8, cy - 16, cx + 8, cy + 16, rgb(kCueRight.r, kCueRight.g, kCueRight.b));
       break;
+    case DrillIcon::BeepTest:
+      d.fillCircle(cx - 24, cy, 8, c);
+      d.fillCircle(cx + 24, cy, 8, c);
+      d.fillTriangle(cx - 14, cy, cx - 6, cy - 6, cx - 6, cy + 6, c);
+      d.fillTriangle(cx + 14, cy, cx + 6, cy - 6, cx + 6, cy + 6, c);
+      d.drawFastHLine(cx - 8, cy, 16, c);
+      break;
     case DrillIcon::Sequence:
       for (int k = 0; k < 3; k++) {
         d.fillCircle(cx - 22 + k * 22, cy, 9, c);
@@ -548,7 +601,10 @@ void DialUi::drawHomeCentre() {
 
   d.setFont(kSmall);
   d.setTextColor(TFT_LIGHTGREY);
-  snprintf(buf, sizeof(buf), "%u seconds", settings_.drillSeconds);
+  if (drill_ == drills::kBeepTestIndex)
+    snprintf(buf, sizeof(buf), "2 pods, 20 m apart");
+  else
+    snprintf(buf, sizeof(buf), "%u seconds", settings_.drillSeconds);
   d.drawString(buf, cx, cy + 38);
 
   // Bottom hint line
@@ -598,6 +654,10 @@ void DialUi::drawCountdown() {
 }
 
 void DialUi::drawRunning() {
+  if (engine_.isBeepTest()) {
+    drawBeepRunning();
+    return;
+  }
   M5GFX& d = board_.display();
   const int cx = board_.width() / 2, cy = board_.height() / 2;
   d.startWrite();
@@ -613,6 +673,10 @@ void DialUi::drawRunning() {
 
 void DialUi::updateRunning(uint32_t now, bool force) {
   if (screen_ != Screen::Running) return;
+  if (engine_.isBeepTest()) {
+    updateBeepRunning(now, force);
+    return;
+  }
   lastRunDraw_ = now;
   M5GFX& d = board_.display();
   const int cx = board_.width() / 2, cy = board_.height() / 2;
@@ -668,6 +732,10 @@ void DialUi::updateRunning(uint32_t now, bool force) {
 }
 
 void DialUi::drawResults() {
+  if (engine_.isBeepTest()) {
+    drawBeepResults();
+    return;
+  }
   M5GFX& d = board_.display();
   const int cx = board_.width() / 2, cy = board_.height() / 2;
   const DrillResult& r = engine_.result();
@@ -860,10 +928,15 @@ void DialUi::reloadPlayerName() {
   if (screen_ == Screen::Home || screen_ == Screen::Menu) dirty_ = true;
 }
 
-bool DialUi::startSelected(uint32_t now) {
+bool DialUi::startSelected(uint32_t now, int taps) {
   if (drillActive()) return false;
   if (engine_.phase() == DrillPhase::Finished) engine_.reset();
-  startDrill(now);
+  if (taps >= 0 && (bool)taps != settings_.beepTaps) {
+    settings_.beepTaps = taps != 0;
+    settings_.save();
+  }
+  // The phone has already asked tap / group, so skip the Dial's question.
+  startDrill(now, taps >= 0);
   return drillActive();
 }
 
@@ -992,4 +1065,142 @@ void DialUi::showUpdate(int8_t percent) {
   d.drawNumber(pct, cx, cy + 4);
   d.setTextPadding(0);
   d.endWrite();
+}
+
+// ------------------------------------------------------------------ beep test
+
+void DialUi::drawBeepChoice() {
+  M5GFX& d = board_.display();
+  const int cx = board_.width() / 2, cy = board_.height() / 2;
+  d.startWrite();
+  d.fillScreen(TFT_BLACK);
+  d.setTextDatum(middle_center);
+  d.setFont(kSmall);
+  d.setTextColor(TFT_LIGHTGREY);
+  d.drawString("Beep test", cx, cy - 74);
+  // Two options; the chosen one is boxed.
+  const char* labels[2] = {"Tap the pods", "Group, no taps"};
+  const char* notes[2] = {"2 late = out", "press to stop"};
+  for (uint8_t i = 0; i < 2; i++) {
+    const bool sel = (i == 0) == beepChoiceTaps_;
+    const int y = cy - 26 + i * 54;
+    if (sel) d.drawRoundRect(20, y - 24, board_.width() - 40, 48, 12, TFT_CYAN);
+    d.setFont(kMedium);
+    d.setTextColor(sel ? TFT_WHITE : TFT_DARKGREY);
+    d.drawString(labels[i], cx, y - 6);
+    d.setFont(&fonts::Font0);
+    d.setTextColor(sel ? TFT_LIGHTGREY : TFT_DARKGREY);
+    d.drawString(notes[i], cx, y + 13);
+  }
+  d.setFont(kSmall);
+  d.setTextColor(TFT_GREEN);
+  d.drawString("Turn, then press", cx, cy + 78);
+  d.endWrite();
+}
+
+void DialUi::drawBeepRunning() {
+  M5GFX& d = board_.display();
+  const int cx = board_.width() / 2, cy = board_.height() / 2;
+  d.startWrite();
+  d.fillScreen(TFT_BLACK);
+  d.setTextDatum(middle_center);
+  d.setFont(kSmall);
+  d.setTextColor(TFT_LIGHTGREY);
+  d.drawString("LEVEL", cx, cy - 58);
+  d.endWrite();
+  updateBeepRunning(millis(), true);
+}
+
+void DialUi::updateBeepRunning(uint32_t now, bool force) {
+  M5GFX& d = board_.display();
+  const int cx = board_.width() / 2, cy = board_.height() / 2;
+  d.startWrite();
+
+  // Ring: this shuttle's time. Fills up as the beep gets closer; green once
+  // the pod has been tapped.
+  const uint32_t dur = engine_.shuttleDurationMs();
+  if (dur) {
+    const float frac = 1.0f - (float)engine_.shuttleRemainingMs(now) / (float)dur;
+    const float split = -90.0f + 360.0f * frac;
+    const uint16_t col = engine_.shuttleReached() ? (uint16_t)TFT_GREEN : rgb(0, 160, 255);
+    if (split > -90.0f) d.fillArc(cx, cy, 110, 119, -90.0f, split, col);
+    if (split < 270.0f) d.fillArc(cx, cy, 110, 119, split, 270.0f, (uint16_t)0x2104);
+  }
+
+  if (force) {
+    drawPodRing(94, 7, false);
+    char buf[32];
+    d.setTextDatum(middle_center);
+    d.setFont(&fonts::Font7);
+    d.setTextColor(TFT_WHITE, TFT_BLACK);
+    d.setTextPadding(110);
+    d.drawNumber(engine_.beepLevel(), cx, cy - 18);
+
+    d.setFont(kMedium);
+    d.setTextColor(TFT_CYAN, TFT_BLACK);
+    d.setTextPadding(170);
+    snprintf(buf, sizeof(buf), "shuttle %u of %u", engine_.beepShuttle(),
+             beeptest::shuttlesInLevel(engine_.beepLevel()));
+    d.drawString(buf, cx, cy + 26);
+
+    d.setFont(kSmall);
+    const uint16_t kmh = beeptest::speedTenths(engine_.beepLevel());
+    const DrillResult& r = engine_.result();
+    if (engine_.config().beepTaps && r.misses) {
+      d.setTextColor(TFT_ORANGE, TFT_BLACK);
+      snprintf(buf, sizeof(buf), "%u.%u km/h  %u late", kmh / 10, kmh % 10, r.misses);
+    } else {
+      d.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+      snprintf(buf, sizeof(buf), "%u.%u km/h  %u m", kmh / 10, kmh % 10,
+               (unsigned)(engine_.beepRun() * beeptest::kShuttleMetres));
+    }
+    d.drawString(buf, cx, cy + 52);
+    d.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    d.drawString(engine_.config().beepTaps ? "tap the lit pod" : "press to stop", cx, cy + 74);
+    d.setTextPadding(0);
+  }
+  d.endWrite();
+}
+
+void DialUi::drawBeepResults() {
+  M5GFX& d = board_.display();
+  const int cx = board_.width() / 2, cy = board_.height() / 2;
+  const DrillResult& r = engine_.result();
+  const beeptest::Score sc = beeptest::scoreFor(r.hits);
+  char buf[40];
+  d.startWrite();
+  d.fillScreen(TFT_BLACK);
+  d.setTextDatum(middle_center);
+  d.setFont(kSmall);
+  d.setTextColor(TFT_LIGHTGREY);
+  snprintf(buf, sizeof(buf), "Beep test%s", r.aborted ? " (stopped)" : "");
+  d.drawString(buf, cx, cy - 76);
+
+  // The score, e.g. "8.4" = level 8, shuttle 4.
+  snprintf(buf, sizeof(buf), "%u.%u", sc.level, sc.shuttle);
+  d.setFont(kHuge);
+  d.setTextSize(2);
+  d.setTextColor(TFT_WHITE);
+  d.drawString(buf, cx, cy - 24);
+  d.setTextSize(1);
+  d.setFont(kSmall);
+  d.setTextColor(TFT_LIGHTGREY);
+  d.drawString("level . shuttle", cx, cy + 18);
+
+  d.setFont(kMedium);
+  d.setTextColor(TFT_CYAN);
+  snprintf(buf, sizeof(buf), "%u m", (unsigned)(r.hits * beeptest::kShuttleMetres));
+  d.drawString(buf, cx, cy + 44);
+  d.setFont(kSmall);
+  d.setTextColor(TFT_WHITE);
+  if (engine_.config().beepTaps)
+    snprintf(buf, sizeof(buf), "%u shuttles  %u late", r.hits, r.misses);
+  else
+    snprintf(buf, sizeof(buf), "%u shuttles", r.hits);
+  d.drawString(buf, cx, cy + 68);
+  d.setFont(&fonts::Font0);
+  d.setTextColor(TFT_DARKGREY);
+  d.drawString("press: done", cx, cy + 90);
+  d.endWrite();
+  pbBlinkAt_ = 0;
 }
