@@ -177,6 +177,11 @@ void DialUi::handleInput(uint32_t now) {
     case Screen::PhoneQr:
       if (turn || press || hold) go(Screen::Home);
       break;
+
+    case Screen::Groups:
+      if (press) endGroupSetup(true);
+      if (hold) endGroupSetup(false);
+      break;
   }
 }
 
@@ -199,7 +204,11 @@ void DialUi::startDrill(uint32_t now) {
 }
 
 DrillConfig DialUi::currentDrill() const {
-  return drills::byIndex(drill_, (uint32_t)settings_.drillSeconds * 1000);
+  return drills::byIndex(drill_, (uint32_t)settings_.drillSeconds * 1000, leftMask());
+}
+
+uint8_t DialUi::leftMask() const {
+  return settings_.leftMask ? settings_.leftMask : drills::defaultLeftMask(pods_.maxPods());
 }
 
 // ------------------------------------------------------------------ engine
@@ -229,6 +238,11 @@ void DialUi::handleEngineEvents(uint32_t now) {
         board_.play({{440, 80}, {0, 50}, {440, 80}});
         updateRunning(now, true);
         break;
+      case DrillEventType::Mistake:
+        ESP_LOGI(TAG, "wrong pod %u (decoy)", ev.slot + 1);
+        board_.play({{220, 300}});  // low buzz: wrong read
+        updateRunning(now, true);
+        break;
       case DrillEventType::WrongTap:
         break;
       case DrillEventType::Finished: {
@@ -239,6 +253,7 @@ void DialUi::handleEngineEvents(uint32_t now) {
                  engine_.config().name, r.aborted ? " (stopped)" : "", r.hits, r.misses, r.wrongTaps,
                  (unsigned long)r.averageMs(), (unsigned long)r.bestMs, (unsigned long)r.worstMs,
                  resultsPb_ ? "  NEW PB" : "");
+        if (hooks_.sessionFinished) hooks_.sessionFinished(engine_.config(), r, resultsPb_);
         if (resultsPb_)
           board_.play({{800, 90}, {1000, 90}, {1300, 90}, {1800, 200}, {0, 80}, {1800, 90}, {2200, 300}});
         else if (!r.aborted)
@@ -267,6 +282,17 @@ void DialUi::menuLabel(uint8_t item, char* label, size_t ln, char* value, size_t
       snprintf(label, ln, "Drill length");
       snprintf(value, vn, "%u seconds", settings_.drillSeconds);
       break;
+    case kGroups: {
+      snprintf(label, ln, "Left/right pods");
+      const uint8_t m = leftMask();
+      size_t o = snprintf(value, vn, "L:");
+      for (uint8_t i = 0; i < pods_.maxPods() && o + 3 < vn; i++)
+        if (m & (1u << i)) o += snprintf(value + o, vn - o, " %u", i + 1);
+      o += snprintf(value + o, vn - o, "  R:");
+      for (uint8_t i = 0; i < pods_.maxPods() && o + 3 < vn; i++)
+        if (!(m & (1u << i))) o += snprintf(value + o, vn - o, " %u", i + 1);
+      break;
+    }
     case kSound:
       snprintf(label, ln, "Sound");
       snprintf(value, vn, "%s", settings_.sound ? "On" : "Off");
@@ -309,6 +335,9 @@ void DialUi::activateMenuItem(uint32_t now) {
     case kDrillLength:
       settings_.drillSeconds = Settings::nextOption(Settings::kDrillSecondsOptions, settings_.drillSeconds);
       break;
+    case kGroups:
+      startGroupSetup();
+      return;
     case kSound:
       settings_.sound = !settings_.sound;
       board_.setSound(settings_.sound);
@@ -422,6 +451,7 @@ void DialUi::drawFull() {
     case Screen::ConfirmOff: drawConfirmOff(); break;
     case Screen::AutoOffWarn: drawAutoOffWarn(lastWarnSecond_); break;
     case Screen::PhoneQr: drawPhoneQr(); break;
+    case Screen::Groups: drawGroups(); break;
   }
 }
 
@@ -464,6 +494,14 @@ void DialUi::drawIcon(DrillIcon icon, int cx, int cy, uint16_t c) {
         d.fillTriangle(x, cy - 16, x + 16, cy, x, cy + 16, c);
         d.fillTriangle(x, cy - 7, x + 7, cy, x, cy + 7, TFT_BLACK);
       }
+      break;
+    case DrillIcon::ColourCall:
+      d.fillCircle(cx - 13, cy, 13, rgb(0, 220, 0));
+      d.fillCircle(cx + 13, cy, 13, rgb(230, 0, 0));
+      break;
+    case DrillIcon::LeftRight:
+      d.fillTriangle(cx - 30, cy, cx - 8, cy - 16, cx - 8, cy + 16, rgb(kCueLeft.r, kCueLeft.g, kCueLeft.b));
+      d.fillTriangle(cx + 30, cy, cx + 8, cy - 16, cx + 8, cy + 16, rgb(kCueRight.r, kCueRight.g, kCueRight.b));
       break;
     case DrillIcon::Sequence:
       for (int k = 0; k < 3; k++) {
@@ -614,8 +652,11 @@ void DialUi::updateRunning(uint32_t now, bool force) {
 
     d.setFont(kSmall);
     d.setTextColor(r.misses ? TFT_ORANGE : TFT_DARKGREY, TFT_BLACK);
-    d.setTextPadding(120);
-    snprintf(buf, sizeof(buf), "%u missed", r.misses);
+    d.setTextPadding(160);
+    if (drills::hasDecoys(engine_.config()))
+      snprintf(buf, sizeof(buf), "%u missed  %u wrong", r.misses, r.mistakes);
+    else
+      snprintf(buf, sizeof(buf), "%u missed", r.misses);
     d.drawString(buf, cx, cy + 72);
     d.setTextPadding(0);
   }
@@ -654,7 +695,10 @@ void DialUi::drawResults() {
     d.drawString(r.hits ? buf : "no hits", cx, cy + 28);
     d.setFont(kSmall);
     d.setTextColor(TFT_WHITE);
-    snprintf(buf, sizeof(buf), "best %lu  missed %u", (unsigned long)r.bestMs, r.misses);
+    if (drills::hasDecoys(engine_.config()))
+      snprintf(buf, sizeof(buf), "best %lu  miss %u  wrong %u", (unsigned long)r.bestMs, r.misses, r.mistakes);
+    else
+      snprintf(buf, sizeof(buf), "best %lu  missed %u", (unsigned long)r.bestMs, r.misses);
     d.drawString(buf, cx, cy + 52);
   } else {
     const uint8_t p = resultsPage_ - 1;
@@ -673,7 +717,11 @@ void DialUi::drawResults() {
     d.drawString(buf, cx, cy + 18);
     d.setFont(kSmall);
     d.setTextColor(TFT_WHITE);
-    snprintf(buf, sizeof(buf), "best %lu  missed %u", (unsigned long)r.podBestMs[p], r.podMisses[p]);
+    if (drills::hasDecoys(engine_.config()))
+      snprintf(buf, sizeof(buf), "best %lu  miss %u  wrong %u", (unsigned long)r.podBestMs[p], r.podMisses[p],
+               r.podMistakes[p]);
+    else
+      snprintf(buf, sizeof(buf), "best %lu  missed %u", (unsigned long)r.podBestMs[p], r.podMisses[p]);
     d.drawString(buf, cx, cy + 44);
   }
 
@@ -825,4 +873,77 @@ void DialUi::closeResults() {
   if (engine_.phase() != DrillPhase::Finished) return;
   engine_.reset();
   go(Screen::Home);
+}
+
+// ------------------------------------------------------------------ left/right setup
+
+void DialUi::startGroupSetup() {
+  if (drillActive()) return;
+  if (engine_.phase() == DrillPhase::Finished) engine_.reset();
+  groupsEdit_ = leftMask();
+  showGroupsOnPods();
+  go(Screen::Groups);
+}
+
+// Left pods glow blue, right pods yellow, so you can see the split.
+void DialUi::showGroupsOnPods() {
+  for (uint8_t i = 0; i < pods_.maxPods(); i++) pods_.setColour(i, (groupsEdit_ & (1u << i)) ? kCueLeft : kCueRight);
+}
+
+void DialUi::endGroupSetup(bool save) {
+  for (uint8_t i = 0; i < pods_.maxPods(); i++) pods_.setColour(i, {0, 0, 0});
+  if (save) {
+    settings_.leftMask = groupsEdit_ ? groupsEdit_ : drills::defaultLeftMask(pods_.maxPods());
+    settings_.save();
+    ESP_LOGI(TAG, "left/right groups saved: left mask 0x%02X", settings_.leftMask);
+    board_.play({{1500, 60}, {2000, 90}});
+  }
+  go(Screen::Home);
+}
+
+void DialUi::onTap(const PodTap& tap) {
+  if (screen_ != Screen::Groups || tap.slot >= pods_.maxPods()) return;
+  groupsEdit_ ^= (uint8_t)(1u << tap.slot);
+  pods_.setColour(tap.slot, (groupsEdit_ & (1u << tap.slot)) ? kCueLeft : kCueRight);
+  board_.beep(groupsEdit_ & (1u << tap.slot) ? 1200 : 1800, 50);
+  lastActivityAt_ = millis();
+  dirty_ = true;
+}
+
+void DialUi::drawGroups() {
+  M5GFX& d = board_.display();
+  const int cx = board_.width() / 2, cy = board_.height() / 2;
+  d.startWrite();
+  d.fillScreen(TFT_BLACK);
+  d.setTextDatum(middle_center);
+  d.setFont(kSmall);
+  d.setTextColor(TFT_LIGHTGREY);
+  d.drawString("Tap a pod to swap sides", cx, cy - 66);
+
+  // Left list in blue, right list in yellow.
+  char left[24] = "", right[24] = "";
+  size_t lo = 0, ro = 0;
+  for (uint8_t i = 0; i < pods_.maxPods(); i++) {
+    if (groupsEdit_ & (1u << i))
+      lo += snprintf(left + lo, sizeof(left) - lo, "%s%u", lo ? " " : "", i + 1);
+    else
+      ro += snprintf(right + ro, sizeof(right) - ro, "%s%u", ro ? " " : "", i + 1);
+  }
+  d.setFont(kMedium);
+  d.setTextColor(rgb(kCueLeft.r, kCueLeft.g, kCueLeft.b));
+  d.drawString("LEFT", cx - 52, cy - 28);
+  d.setTextColor(rgb(kCueRight.r, kCueRight.g, kCueRight.b));
+  d.drawString("RIGHT", cx + 52, cy - 28);
+  d.setFont(kLarge);
+  d.setTextColor(TFT_WHITE);
+  d.drawString(left[0] ? left : "-", cx - 52, cy + 6);
+  d.drawString(right[0] ? right : "-", cx + 52, cy + 6);
+  d.drawFastVLine(cx, cy - 40, 64, TFT_DARKGREY);
+
+  d.setFont(kSmall);
+  d.setTextColor(TFT_GREEN);
+  d.drawString("Press to save", cx, cy + 50);
+  d.setTextColor(TFT_DARKGREY);
+  d.drawString("Hold to cancel", cx, cy + 72);
+  d.endWrite();
 }

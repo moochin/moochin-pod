@@ -14,6 +14,7 @@ struct Settings {
   uint8_t autoOffMin = 15;   // switch off after this long unused (0 = never)
   bool demoPods = false;     // simulated pods instead of real ones
   uint8_t lastDrill = 0;     // drill shown on the home screen at start
+  uint8_t leftMask = 0;      // Left/right drill: pods on the left (bitmask, 0 = not set)
   uint8_t player = 0;        // current profile (0..kPlayers-1); results are logged against it
 
   static constexpr uint8_t kPlayers = 4;
@@ -33,6 +34,7 @@ struct Settings {
     demoPods = p.getBool("demo", demoPods);
     lastDrill = p.getUChar("drill", lastDrill);
     player = p.getUChar("player", player);
+    leftMask = p.getUChar("left", leftMask);
     p.end();
     if (player >= kPlayers) player = 0;
     if (expectedPods < 1 || expectedPods > 6) expectedPods = 4;
@@ -52,6 +54,7 @@ struct Settings {
     p.putBool("demo", demoPods);
     p.putUChar("drill", lastDrill);
     p.putUChar("player", player);
+    p.putUChar("left", leftMask);
     p.end();
   }
 

@@ -11,9 +11,12 @@ const received = [];
 const base = {
   t: 'state', phase: 'idle', countdown: 3, drill: 0, seconds: 30, secondsOptions: [20, 30, 45, 60],
   drills: [
-    { name: 'Reaction', desc: 'Hit the pod that lights. Random gaps, never the same pod twice.' },
-    { name: 'Sprint', desc: 'As many hits as you can. Next pod lights straight away.' },
-    { name: 'Sequence', desc: 'Pods light in order 1, 2, 3... for circuits.' }],
+    { name: 'Reaction', desc: 'Hit the pod that lights. Random gaps, never the same pod twice.', metric: 'avg', decoys: false },
+    { name: 'Sprint', desc: 'As many hits as you can. Next pod lights straight away.', metric: 'hits', decoys: false },
+    { name: 'Sequence', desc: 'Pods light in order 1, 2, 3... for circuits.', metric: 'hits', decoys: false },
+    { name: 'Colour call', desc: 'Green and red light together. Hit green. Red is a decoy.', metric: 'avg', decoys: true },
+    { name: 'Left / right', desc: 'Blue = hit the left pod, yellow = hit the right pod.', metric: 'avg', decoys: true }],
+  leftMask: 3,
   player: 0, players: ['Sam', 'Dad', 'Player 3', 'Player 4'],
   pods: [['#ff3b30', 'connected'], ['#34c759', 'connected'], ['#0a84ff', 'searching'], ['#ffb400', 'connected']]
     .map(([c, st], i) => ({ n: i + 1, c, st })),
@@ -21,6 +24,14 @@ const base = {
 };
 let state = { ...base };
 const srv = http.createServer((req, res) => {
+  if (req.url.startsWith('/api/history')) {
+    res.setHeader('content-type', 'application/json');
+    const sessions = [];
+    for (let i = 0; i < 12; i++) sessions.push({ id: 40 - i, time: `2026-11-${String(27 - i).padStart(2, '0')} 17:${10 + i}`, player: 0,
+      drill: i % 3 === 0 ? 3 : 0, sec: 30, hits: 20 + (i % 5), misses: i % 3, mistakes: i % 3 === 0 ? 2 : 0,
+      avg: 420 + i * 9 + (i % 2) * 25, best: 280 + i * 3, aborted: i === 4, pb: i === 0, demo: i === 7 });
+    return res.end(JSON.stringify({ sessions }));
+  }
   if (req.url === '/api/status') {
     res.setHeader('content-type', 'application/json');
     return res.end(JSON.stringify({ up: 754000, heap: 98304, minHeap: 81920, pods: [{ n: 1, st: 'connected', rssi: -61, drops: 0 }] }));
@@ -58,6 +69,19 @@ srv.listen(0, async () => {
     await p.waitForTimeout(200);
     await p.screenshot({ path: `${out}/4-results-${scheme}.png`, fullPage: true });
     if (scheme === 'light') { await p.click('#repeatBtn'); await p.click('#doneBtn'); }
+    // Colour call results (wrong-pod column) and left/right home
+    push({ ...base, drill: 3, phase: 'finished', result: { hits: 18, misses: 1, mistakes: 3, avgMs: 512, bestMs: 344, worstMs: 900, aborted: false, pb: false,
+      pods: [{ hits: 5, misses: 0, mistakes: 1, avgMs: 500, bestMs: 344 }, { hits: 4, misses: 1, mistakes: 0, avgMs: 530, bestMs: 400 }, { hits: 0, misses: 0, mistakes: 0, avgMs: 0, bestMs: 0 }, { hits: 9, misses: 0, mistakes: 2, avgMs: 505, bestMs: 360 }] } });
+    await p.waitForTimeout(200);
+    await p.screenshot({ path: `${out}/8-results-colourcall-${scheme}.png`, fullPage: true });
+    push({ ...base, drill: 4 }); await p.waitForTimeout(200);
+    await p.screenshot({ path: `${out}/9-home-leftright-${scheme}.png` });
+    if (scheme === 'light') { p.once('dialog', (d) => d.accept()); await p.click('#groupsBtn'); }
+    await p.click('#historyBtn'); await p.waitForTimeout(500);
+    await p.screenshot({ path: `${out}/10-history-${scheme}.png`, fullPage: true });
+    await p.click('[data-hdrill="3"]'); await p.waitForTimeout(200);
+    await p.screenshot({ path: `${out}/11-history-colourcall-${scheme}.png` });
+    await p.click('#histBack'); await p.waitForTimeout(200);
     push({ ...base }); await p.waitForTimeout(200);
     await p.click('#playerBtn'); await p.waitForTimeout(200);
     if (scheme === 'light') { await p.click('[data-player="1"]'); await p.fill('#renameInput', 'Pete'); await p.click('#saveName'); }

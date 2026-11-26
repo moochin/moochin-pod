@@ -246,6 +246,149 @@ static void test_full_drill_with_simulated_player() {
   TEST_ASSERT_EQUAL(r.hits, podTotal);
 }
 
+static bool sameRgb(Rgb a, Rgb b) { return a.r == b.r && a.g == b.g && a.b == b.b; }
+
+static uint8_t litCount(MockPodDriver& pods) {
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < pods.maxPods(); i++) n += pods.lit(i);
+  return n;
+}
+
+static void test_colour_call_lights_green_target_and_red_decoy() {
+  MockPodDriver pods;
+  pods.setAutoTap(false);
+  pods.begin(4);
+  pods.connectAllNow();
+  DrillEngine e(pods, 3);
+  uint32_t t = startRunning(e, drills::colourCall(600000));
+  for (int round = 0; round < 50; round++) {
+    const int8_t target = e.litPod();
+    TEST_ASSERT_TRUE(target >= 0);
+    TEST_ASSERT_EQUAL(2, litCount(pods));
+    TEST_ASSERT_TRUE(sameRgb(pods.colour(target), Rgb{0, 255, 0}));
+    uint8_t decoys = 0;
+    for (uint8_t i = 0; i < 4; i++)
+      if (pods.lit(i) && i != target) {
+        TEST_ASSERT_TRUE(sameRgb(pods.colour(i), Rgb{255, 0, 0}));
+        decoys++;
+      }
+    TEST_ASSERT_EQUAL(1, decoys);
+    e.onTap(tapOn(target, 400), t);
+    TEST_ASSERT_EQUAL(0, litCount(pods));  // hit: the decoy goes off too
+    while (e.litPod() < 0) e.tick(t += 10);
+  }
+  TEST_ASSERT_EQUAL(50, e.result().hits);
+  TEST_ASSERT_EQUAL(0, e.result().mistakes);
+}
+
+static void test_colour_call_decoy_hit_is_a_mistake_and_ends_round() {
+  MockPodDriver pods;
+  pods.setAutoTap(false);
+  pods.begin(4);
+  pods.connectAllNow();
+  DrillEngine e(pods, 5);
+  uint32_t t = startRunning(e, drills::colourCall(30000));
+  int8_t decoy = -1;
+  for (uint8_t i = 0; i < 4; i++)
+    if (e.litMask() & (1u << i) && i != e.litPod()) decoy = i;
+  TEST_ASSERT_TRUE(decoy >= 0);
+  e.onTap(tapOn(decoy, 350), t + 350);
+  TEST_ASSERT_EQUAL(1, e.result().mistakes);
+  TEST_ASSERT_EQUAL(1, e.result().podMistakes[decoy]);
+  TEST_ASSERT_EQUAL(0, e.result().hits);
+  TEST_ASSERT_EQUAL(-1, e.litPod());
+  TEST_ASSERT_EQUAL(0, litCount(pods));
+  TEST_ASSERT_EQUAL(1, countEvents(e, DrillEventType::Mistake));
+}
+
+static void test_colour_call_single_pod_has_no_decoy() {
+  MockPodDriver pods;
+  pods.setAutoTap(false);
+  pods.begin(1);
+  pods.connectAllNow();
+  DrillEngine e(pods);
+  startRunning(e, drills::colourCall(30000));
+  TEST_ASSERT_EQUAL(0, e.litPod());
+  TEST_ASSERT_EQUAL(1, litCount(pods));
+}
+
+static void test_left_right_cue_colour_matches_target_side() {
+  MockPodDriver pods;
+  pods.setAutoTap(false);
+  pods.begin(4);
+  pods.connectAllNow();
+  const uint8_t left = 0b0101;  // pods 1 and 3 on the left
+  DrillEngine e(pods, 11);
+  uint32_t t = startRunning(e, drills::leftRight(600000, left));
+  uint16_t lefts = 0, rights = 0;
+  for (int round = 0; round < 200; round++) {
+    const int8_t target = e.litPod();
+    TEST_ASSERT_TRUE(target >= 0);
+    TEST_ASSERT_EQUAL(2, litCount(pods));
+    const bool targetLeft = left & (1u << target);
+    // Both lit pods show the same cue; blue means the target is on the left.
+    for (uint8_t i = 0; i < 4; i++)
+      if (pods.lit(i)) TEST_ASSERT_TRUE(sameRgb(pods.colour(i), targetLeft ? kCueLeft : kCueRight));
+    // One lit pod on each side.
+    uint8_t litLeft = 0, litRight = 0;
+    for (uint8_t i = 0; i < 4; i++)
+      if (pods.lit(i)) (left & (1u << i)) ? litLeft++ : litRight++;
+    TEST_ASSERT_EQUAL(1, litLeft);
+    TEST_ASSERT_EQUAL(1, litRight);
+    targetLeft ? lefts++ : rights++;
+    e.onTap(tapOn(target, 500), t);
+    while (e.litPod() < 0) e.tick(t += 10);
+  }
+  TEST_ASSERT_TRUE(lefts > 60 && rights > 60);  // both sides get called
+}
+
+static void test_left_right_one_side_missing_uses_other_side() {
+  MockPodDriver pods;
+  pods.setAutoTap(false);
+  pods.begin(4);
+  pods.connectAllNow();
+  pods.setConnected(0, false);
+  pods.setConnected(1, false);  // both left pods gone
+  DrillEngine e(pods);
+  startRunning(e, drills::leftRight(30000, 0b0011));
+  const int8_t target = e.litPod();
+  TEST_ASSERT_TRUE(target == 2 || target == 3);
+  TEST_ASSERT_TRUE(sameRgb(pods.colour(target), kCueRight));
+  TEST_ASSERT_EQUAL(1, litCount(pods));
+}
+
+static void test_shot_log_records_hits_misses_mistakes_in_order() {
+  MockPodDriver pods;
+  pods.setAutoTap(false);
+  pods.begin(4);
+  pods.connectAllNow();
+  DrillEngine e(pods, 9);
+  uint32_t t = startRunning(e, drills::colourCall(600000));
+  // hit
+  const int8_t first = e.litPod();
+  e.onTap(tapOn(first, 321), t);
+  while (e.litPod() < 0) e.tick(t += 10);
+  // miss (timeout)
+  const int8_t second = e.litPod();
+  e.tick(t += 3000);
+  while (e.litPod() < 0) e.tick(t += 10);
+  // mistake
+  int8_t decoy = -1;
+  for (uint8_t i = 0; i < 4; i++)
+    if (e.litMask() & (1u << i) && i != e.litPod()) decoy = i;
+  e.onTap(tapOn(decoy, 200), t);
+
+  const DrillResult& r = e.result();
+  TEST_ASSERT_EQUAL(3, r.shotCount);
+  TEST_ASSERT_EQUAL(Shot::Hit, r.shots[0].kind);
+  TEST_ASSERT_EQUAL(first, r.shots[0].pod);
+  TEST_ASSERT_EQUAL(321, r.shots[0].ms);
+  TEST_ASSERT_EQUAL(Shot::Miss, r.shots[1].kind);
+  TEST_ASSERT_EQUAL(second, r.shots[1].pod);
+  TEST_ASSERT_EQUAL(Shot::Mistake, r.shots[2].kind);
+  TEST_ASSERT_EQUAL(decoy, r.shots[2].pod);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_start_needs_a_connected_pod);
@@ -260,5 +403,11 @@ int main(int, char**) {
   RUN_TEST(test_stop_aborts);
   RUN_TEST(test_wrong_tap_counted_not_scored);
   RUN_TEST(test_full_drill_with_simulated_player);
+  RUN_TEST(test_colour_call_lights_green_target_and_red_decoy);
+  RUN_TEST(test_colour_call_decoy_hit_is_a_mistake_and_ends_round);
+  RUN_TEST(test_colour_call_single_pod_has_no_decoy);
+  RUN_TEST(test_left_right_cue_colour_matches_target_side);
+  RUN_TEST(test_left_right_one_side_missing_uses_other_side);
+  RUN_TEST(test_shot_log_records_hits_misses_mistakes_in_order);
   return UNITY_END();
 }

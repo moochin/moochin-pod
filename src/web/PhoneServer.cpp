@@ -2,9 +2,11 @@
 
 #include <ArduinoJson.h>
 #include <DNSServer.h>
+#include <LittleFS.h>
 #include <ESPAsyncWebServer.h>
 #include <WiFi.h>
 
+#include "../storage/Results.h"
 #include "index_html_gz.h"
 
 static const char* TAG = "web";
@@ -85,6 +87,8 @@ static void onWsData(AsyncWebSocketClient* client, const uint8_t* data, size_t l
   } else if (!strcmp(cmd, "player")) {
     c.type = WebCmd::Player;
     c.value = doc["player"] | -1;
+  } else if (!strcmp(cmd, "groups")) {
+    c.type = WebCmd::Groups;
   } else if (!strcmp(cmd, "flash")) {
     c.type = WebCmd::Flash;
     c.value = doc["pod"] | -1;
@@ -149,6 +153,29 @@ void PhoneServer::start(StatusFn status) {
       json.reserve(768);
       if (status_) status_(json);
       AsyncWebServerResponse* r = req->beginResponse(200, "application/json", json);
+      r->addHeader("Cache-Control", "no-store");
+      req->send(r);
+    });
+
+    // History for the phone's History screen: ?player=N (default: everyone).
+    server.on("/api/history", HTTP_GET, [](AsyncWebServerRequest* req) {
+      const int player = req->hasParam("player") ? req->getParam("player")->value().toInt() : -1;
+      String json;
+      json.reserve(8192);
+      results::historyJson(json, player, 100);
+      AsyncWebServerResponse* r = req->beginResponse(200, "application/json", json);
+      r->addHeader("Cache-Control", "no-store");
+      req->send(r);
+    });
+    // CSV download (one row per session): ?player=N (default: everyone).
+    server.on("/api/export.csv", HTTP_GET, [](AsyncWebServerRequest* req) {
+      const int player = req->hasParam("player") ? req->getParam("player")->value().toInt() : -1;
+      if (!results::exportCsv("/export.csv", player)) {
+        req->send(500, "text/plain", "Could not create the CSV");
+        return;
+      }
+      AsyncWebServerResponse* r = req->beginResponse(LittleFS, "/export.csv", "text/csv");
+      r->addHeader("Content-Disposition", "attachment; filename=\"podhub-history.csv\"");
       r->addHeader("Cache-Control", "no-store");
       req->send(r);
     });

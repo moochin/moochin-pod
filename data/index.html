@@ -75,6 +75,21 @@ input{font:inherit;width:100%;min-height:52px;border-radius:12px;border:2px soli
 details{margin-top:28px;color:var(--dim);font-size:15px}
 summary{min-height:44px;display:flex;align-items:center}
 .kv{display:flex;justify-content:space-between;padding:4px 0}
+.side{position:absolute;bottom:-8px;right:-6px;font-size:12px;font-weight:800;border-radius:8px;padding:1px 5px;background:var(--fg);color:var(--bg)}
+.second.small{min-height:56px;font-size:19px}
+.hrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 2px;border-bottom:1px solid var(--line)}
+.hrow b{font-size:18px}
+.hrow small{color:var(--dim);display:block;font-size:14px}
+.hrow .num{text-align:right;font-variant-numeric:tabular-nums}
+.tag{display:inline-block;font-size:12px;font-weight:800;border-radius:6px;padding:1px 6px;margin-left:6px;background:var(--card);color:var(--dim)}
+.tag.pb{background:var(--pb);color:#000}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.chips button{flex:none;background:var(--card);border-radius:999px;min-height:44px;padding:0 16px;font-weight:700;border:3px solid transparent}
+.chips button.sel{border-color:var(--accent)}
+.chart{background:var(--card);border-radius:14px;padding:10px;margin-top:10px}
+.chart svg{display:block;width:100%;height:170px}
+.chart p{margin:4px 2px 0;color:var(--dim);font-size:14px}
+a.big{color:var(--fg);text-decoration:none;text-align:center;display:flex;align-items:center;justify-content:center}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -95,10 +110,13 @@ summary{min-height:44px;display:flex;align-items:center}
   <h2>Drill</h2>
   <div class="tiles" id="drills"></div>
 
+  <button class="big second small" id="groupsBtn" hidden>Set left / right pods</button>
+
   <h2>Length</h2>
   <div class="seg" id="lengths"></div>
 
   <button class="big go" id="startBtn">Start</button>
+  <button class="big second" id="historyBtn">History</button>
 
   <details id="details">
     <summary>Hub details</summary>
@@ -121,7 +139,7 @@ summary{min-height:44px;display:flex;align-items:center}
     <div class="stats">
       <div class="stat"><b id="runLast">–</b><span>last (ms)</span></div>
       <div class="stat"><b id="runAvg">–</b><span>average (ms)</span></div>
-      <div class="stat"><b id="runMiss">0</b><span>missed</span></div>
+      <div class="stat"><b id="runMiss">0</b><span id="runMissLabel">missed</span></div>
       <div class="stat"><b id="runLeft">–</b><span>seconds left</span></div>
     </div>
   </div>
@@ -138,14 +156,28 @@ summary{min-height:44px;display:flex;align-items:center}
     <div class="stat"><b id="resAvg">–</b><span>average (ms)</span></div>
     <div class="stat"><b id="resBest">–</b><span>best (ms)</span></div>
     <div class="stat"><b id="resWorst">–</b><span>slowest (ms)</span></div>
-    <div class="stat"><b id="resMiss">0</b><span>missed</span></div>
+    <div class="stat"><b id="resMiss">0</b><span id="resMissLabel">missed</span></div>
   </div>
   <table>
-    <thead><tr><th>Pod</th><th>Hits</th><th>Avg</th><th>Best</th><th>Missed</th></tr></thead>
+    <thead><tr><th>Pod</th><th>Hits</th><th>Avg</th><th>Best</th><th>Missed</th><th id="resWrongTh">Wrong</th></tr></thead>
     <tbody id="resPods"></tbody>
   </table>
   <button class="big go" id="repeatBtn">Go again</button>
   <button class="big second" id="doneBtn">Done</button>
+</section>
+
+<!-- HISTORY -->
+<section id="hist" hidden>
+  <h2 style="margin-top:4px">Trend: <span id="histWho"></span></h2>
+  <div class="chips" id="histDrills"></div>
+  <div class="chart"><svg id="histChart" viewBox="0 0 320 170" preserveAspectRatio="none"></svg><p id="histChartNote"></p></div>
+  <h2>Sessions</h2>
+  <div id="histList"></div>
+  <h2>Download (CSV)</h2>
+  <a class="big second small" id="csvMine" href="/api/export.csv" download>This player</a>
+  <a class="big second small" id="csvAll" href="/api/export.csv" download>Everyone</a>
+  <p class="hint">If nothing downloads, open <b>192.168.4.1</b> in Safari and try again.</p>
+  <button class="big go" id="histBack">Back</button>
 </section>
 
 <!-- PLAYERS -->
@@ -189,24 +221,31 @@ function setConn(on) {
 
 // ---------------------------------------------------------------- render
 const fmt = (ms) => ms ? String(ms) : '–';
-function show(id) { for (const s of ['home', 'run', 'res']) $(s).hidden = s !== id; }
+function show(id) { for (const s of ['home', 'run', 'res', 'hist']) $(s).hidden = s !== id; }
+let historyOpen = false, hist = null, histDrill = null;
 
 function render() {
   if (!st) return;
   $('playerName').textContent = st.players[st.player] || 'Player';
-  const view = st.phase === 'countdown' || st.phase === 'running' ? 'run' : st.phase === 'finished' ? 'res' : 'home';
+  let view = st.phase === 'countdown' || st.phase === 'running' ? 'run' : st.phase === 'finished' ? 'res' : 'home';
+  if (view === 'home' && historyOpen) view = 'hist';
+  if (view !== 'home' && view !== 'hist') historyOpen = false;
   show(view);
   if (view === 'home') renderHome();
   if (view === 'run') renderRun();
   if (view === 'res') renderRes();
+  if (view === 'hist') renderHist();
   if ($('players').open) renderPlayers();
 }
 
 function renderHome() {
   const connected = st.pods.filter((p) => p.st === 'connected').length;
   $('podCount').textContent = `${connected} / ${st.pods.length}`;
+  const lr = st.drills[st.drill] && st.drill === 4;
   $('pods').innerHTML = st.pods.map((p, i) =>
-    `<button class="pod" data-pod="${i}" style="background:${p.st === 'connected' ? p.c : ''}" aria-label="Pod ${p.n}">${p.n}</button>`).join('');
+    `<button class="pod" data-pod="${i}" style="background:${p.st === 'connected' ? p.c : ''}" aria-label="Pod ${p.n}">${p.n}` +
+    (lr ? `<span class="side">${st.leftMask & (1 << i) ? 'L' : 'R'}</span>` : '') + `</button>`).join('');
+  $('groupsBtn').hidden = !lr;
   $('drills').innerHTML = st.drills.map((d, i) =>
     `<button class="tile${i === st.drill ? ' sel' : ''}" data-drill="${i}"><b>${d.name}</b><small>${d.desc}</small></button>`).join('');
   $('lengths').innerHTML = st.secondsOptions.map((s) =>
@@ -228,7 +267,9 @@ function renderRun() {
   $('runHits').textContent = r.hits;
   $('runLast').textContent = fmt(r.lastMs);
   $('runAvg').textContent = fmt(r.avgMs);
-  $('runMiss').textContent = r.misses;
+  const decoys = st.drills[st.drill] && st.drills[st.drill].decoys;
+  $('runMiss').textContent = decoys ? `${r.misses} / ${r.mistakes}` : r.misses;
+  $('runMissLabel').textContent = decoys ? 'missed / wrong' : 'missed';
   tickTimer();
 }
 
@@ -249,10 +290,75 @@ function renderRes() {
   $('resAvg').textContent = fmt(r.avgMs);
   $('resBest').textContent = fmt(r.bestMs);
   $('resWorst').textContent = fmt(r.worstMs);
-  $('resMiss').textContent = r.misses;
+  const decoys = st.drills[st.drill] && st.drills[st.drill].decoys;
+  $('resMiss').textContent = decoys ? `${r.misses} / ${r.mistakes}` : r.misses;
+  $('resMissLabel').textContent = decoys ? 'missed / wrong' : 'missed';
+  $('resWrongTh').hidden = !decoys;
   $('resPods').innerHTML = (r.pods || []).map((p, i) =>
     `<tr><td><span class="dot" style="background:${st.pods[i] ? st.pods[i].c : '#999'}"></span>${i + 1}</td>` +
-    `<td>${p.hits}</td><td>${fmt(p.avgMs)}</td><td>${fmt(p.bestMs)}</td><td>${p.misses}</td></tr>`).join('');
+    `<td>${p.hits}</td><td>${fmt(p.avgMs)}</td><td>${fmt(p.bestMs)}</td><td>${p.misses}</td>` +
+    (decoys ? `<td>${p.mistakes}</td>` : '') + `</tr>`).join('');
+}
+
+// ---------------------------------------------------------------- history
+async function loadHistory() {
+  try {
+    hist = await (await fetch(`/api/history?player=${st.player}`, {cache: 'no-store'})).json();
+  } catch (_) { hist = {sessions: []}; }
+  // Start the trend on the drill trained most recently.
+  const recent = hist.sessions.find((s) => !s.demo && !s.aborted);
+  if (recent) histDrill = recent.drill;
+  renderHist();
+  const sel = document.querySelector('#histDrills .sel');
+  if (sel) sel.scrollIntoView({block: 'nearest', inline: 'center'});
+}
+
+function renderHist() {
+  if (!st) return;
+  $('histWho').textContent = st.players[st.player] || '';
+  $('csvMine').href = `/api/export.csv?player=${st.player}`;
+  if (histDrill === null) histDrill = st.drill;
+  $('histDrills').innerHTML = st.drills.map((d, i) =>
+    `<button class="${i === histDrill ? 'sel' : ''}" data-hdrill="${i}">${d.name}</button>`).join('');
+  const sessions = (hist && hist.sessions) || [];
+  renderChart(sessions);
+  $('histList').innerHTML = sessions.length ? sessions.map((s) => {
+    const d = st.drills[s.drill] || {name: '?'};
+    const tags = (s.pb ? '<span class="tag pb">PB</span>' : '') + (s.aborted ? '<span class="tag">stopped</span>' : '') +
+      (s.demo ? '<span class="tag">demo</span>' : '');
+    return `<div class="hrow"><div><b>${d.name}</b>${tags}<small>${s.time || 'no date'} · ${s.sec} s</small></div>` +
+      `<div class="num"><b>${s.hits} hits</b><small>${s.avg ? s.avg + ' ms avg' : '–'}${d.decoys ? ' · ' + s.mistakes + ' wrong' : ''}</small></div></div>`;
+  }).join('') : '<p class="hint">No sessions yet. Finish a drill and it shows up here.</p>';
+}
+
+// Trend for one drill: average reaction (lower is better) or hits (higher is
+// better), oldest to newest. Demo and stopped sessions are left out.
+function renderChart(sessions) {
+  const d = st.drills[histDrill];
+  const metric = d ? d.metric : 'avg';
+  const pts = sessions.filter((s) => s.drill === histDrill && !s.aborted && !s.demo && (metric === 'hits' || s.avg))
+    .slice(0, 30).reverse().map((s) => metric === 'hits' ? s.hits : s.avg);
+  const svg = $('histChart');
+  if (pts.length < 2) {
+    svg.innerHTML = '';
+    $('histChartNote').textContent = pts.length ? 'One session so far. The trend appears after two.' : 'No sessions for this drill yet.';
+    return;
+  }
+  const W = 320, H = 170, pad = 14;
+  let lo = Math.min(...pts), hi = Math.max(...pts);
+  if (hi === lo) { hi += 1; lo -= 1; }
+  const x = (i) => pad + (W - 2 * pad) * i / (pts.length - 1);
+  const y = (v) => pad + (H - 2 * pad) * (1 - (v - lo) / (hi - lo));
+  const line = pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  const css = getComputedStyle(document.documentElement);
+  const acc = css.getPropertyValue('--accent'), dim = css.getPropertyValue('--line');
+  svg.innerHTML = `<line x1="${pad}" x2="${W - pad}" y1="${H - pad}" y2="${H - pad}" stroke="${dim}" stroke-width="1"/>` +
+    `<path d="${line}" fill="none" stroke="${acc}" stroke-width="3" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>` +
+    pts.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${acc}"/>`).join('');
+  const first = pts[0], last = pts[pts.length - 1];
+  $('histChartNote').textContent = metric === 'hits'
+    ? `Hits per session, last ${pts.length}: ${first} → ${last}. Higher is better.`
+    : `Average reaction (ms), last ${pts.length}: ${first} → ${last}. Lower is better.`;
 }
 
 // ---------------------------------------------------------------- players
@@ -271,14 +377,22 @@ document.addEventListener('click', (e) => {
   if (t.dataset.pod !== undefined) send({cmd: 'flash', pod: +t.dataset.pod});
   else if (t.dataset.drill !== undefined) send({cmd: 'drill', drill: +t.dataset.drill});
   else if (t.dataset.sec !== undefined) send({cmd: 'seconds', seconds: +t.dataset.sec});
+  else if (t.dataset.hdrill !== undefined) { histDrill = +t.dataset.hdrill; renderHist(); }
   else if (t.dataset.player !== undefined) {
     editing = +t.dataset.player;
     send({cmd: 'player', player: editing});
+    if (historyOpen) setTimeout(loadHistory, 400);
     $('renameInput').value = st.players[editing] || '';
     renderPlayers();  // update the "Rename ..." label now, not on the hub's reply
   }
 });
 $('startBtn').onclick = () => send({cmd: 'start'});
+$('groupsBtn').onclick = () => {
+  send({cmd: 'groups'});
+  alert('On the pods: tap a pod to swap it between left (blue) and right (yellow). Then press the Dial to save.');
+};
+$('historyBtn').onclick = () => { historyOpen = true; histDrill = st ? st.drill : 0; hist = null; render(); loadHistory(); };
+$('histBack').onclick = () => { historyOpen = false; render(); window.scrollTo(0, 0); };
 $('stopBtn').onclick = () => send({cmd: 'stop'});
 $('repeatBtn').onclick = () => send({cmd: 'repeat'});
 $('doneBtn').onclick = () => send({cmd: 'done'});

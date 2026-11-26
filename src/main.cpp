@@ -11,6 +11,7 @@
 #include "pods/MockPodDriver.h"
 #include "settings/Settings.h"
 #include "storage/Players.h"
+#include "storage/Results.h"
 #include "ui/DialUi.h"
 #include "web/PhoneServer.h"
 
@@ -85,7 +86,11 @@ static void buildState(String& out) {
     JsonObject d = dl.add<JsonObject>();
     d["name"] = drills::byIndex(i, 0).name;
     d["desc"] = drills::description(i);
+    const DrillConfig cfg = drills::byIndex(i, 0);
+    d["metric"] = cfg.pb == PbMetric::MostHits ? "hits" : "avg";
+    d["decoys"] = drills::hasDecoys(cfg);
   }
+  doc["leftMask"] = ui->leftMask();
   doc["seconds"] = settings.drillSeconds;
   JsonArray so = doc["secondsOptions"].to<JsonArray>();
   for (uint8_t s : Settings::kDrillSecondsOptions) so.add(s);
@@ -109,6 +114,7 @@ static void buildState(String& out) {
     JsonObject run = doc["run"].to<JsonObject>();
     run["hits"] = r.hits;
     run["misses"] = r.misses;
+    run["mistakes"] = r.mistakes;
     run["lastMs"] = engine->lastHitMs();
     run["avgMs"] = r.averageMs();
     run["remainingMs"] = engine->remainingMs(now);
@@ -118,7 +124,7 @@ static void buildState(String& out) {
     JsonObject res = doc["result"].to<JsonObject>();
     res["hits"] = r.hits;
     res["misses"] = r.misses;
-    res["wrong"] = r.wrongTaps;
+    res["mistakes"] = r.mistakes;
     res["avgMs"] = r.averageMs();
     res["bestMs"] = r.bestMs;
     res["worstMs"] = r.worstMs;
@@ -129,6 +135,7 @@ static void buildState(String& out) {
       JsonObject p = rp.add<JsonObject>();
       p["hits"] = r.podHits[i];
       p["misses"] = r.podMisses[i];
+      p["mistakes"] = r.podMistakes[i];
       p["avgMs"] = r.podAverageMs(i);
       p["bestMs"] = r.podBestMs[i];
     }
@@ -137,7 +144,7 @@ static void buildState(String& out) {
 }
 
 static void flashPod(uint8_t i, uint32_t now) {
-  if (i >= pods->maxPods() || i >= 6 || ui->drillActive()) return;
+  if (i >= pods->maxPods() || i >= 6 || ui->podsInUse()) return;
   if (pods->setColour(i, kPodColours[i])) identOffAt[i] = now + 1500;
 }
 
@@ -171,6 +178,7 @@ static void handlePhoneCommands(uint32_t now) {
       case WebCmd::Seconds: if (c.value > 0) ui->setDrillSeconds((uint8_t)c.value); break;
       case WebCmd::Player: if (c.value >= 0) ui->selectPlayer((uint8_t)c.value); break;
       case WebCmd::Flash: if (c.value >= 0) flashPod((uint8_t)c.value, now); break;
+      case WebCmd::Groups: ui->startGroupSetup(); break;
       case WebCmd::Rename:
         if (c.value >= 0 && c.value < Settings::kPlayers) {
           players::rename((uint8_t)c.value, c.text);
@@ -206,6 +214,28 @@ static void handlePhoneCommands(uint32_t now) {
   }
 }
 
+// A drill ended: append it to the history, stamped with the Dial's clock.
+static void saveSession(const DrillConfig& cfg, const DrillResult& r, bool pb) {
+  results::SessionInfo info{};
+  const m5::rtc_datetime_t dt = M5.Rtc.getDateTime();
+  if (dt.date.year >= 2024) {  // the clock is set once a phone has connected
+    info.when.year = dt.date.year;
+    info.when.month = dt.date.month;
+    info.when.day = dt.date.date;
+    info.when.hour = dt.time.hours;
+    info.when.minute = dt.time.minutes;
+  }
+  char name[players::kNameLen];
+  players::name(settings.player, name, sizeof(name));
+  info.player = settings.player;
+  info.playerName = name;
+  info.drillIndex = ui->selectedDrill();
+  info.seconds = settings.drillSeconds;
+  info.pb = pb;
+  info.demo = settings.demoPods;
+  if (!results::save(info, cfg, r)) ESP_LOGW(TAG, "session not saved");
+}
+
 static void setPhoneMode(bool on) {
   settings.phoneMode = on;
   if (on)
@@ -227,6 +257,7 @@ void setup() {
   board.begin();
   delay(300);  // let USB serial enumerate so the first lines aren't lost
   settings.load();
+  results::begin();
   ESP_LOGI(TAG, "Pod Hub starting. %s pods, expecting %u, phone mode %s", settings.demoPods ? "DEMO" : "real",
            settings.expectedPods, settings.phoneMode ? "on" : "off");
 
@@ -242,6 +273,7 @@ void setup() {
   hooks.phoneClients = [] { return phone.clients(); };  // Wi-Fi joined counts as "in use"
   hooks.restart = [] { ESP.restart(); };
   hooks.devicesHeard = [] { return usingBle() ? blePods.devicesHeard() : (uint16_t)0; };
+  hooks.sessionFinished = saveSession;
   ui = new DialUi(board, *pods, *engine, settings, hooks);
   ui->begin();
 
@@ -256,7 +288,10 @@ void loop() {
 
   pods->tick(now);
   PodTap tap;
-  while (pods->pollTap(tap)) engine->onTap(tap, now);
+  while (pods->pollTap(tap)) {
+    engine->onTap(tap, now);
+    ui->onTap(tap);
+  }
   engine->tick(now);
 
   // A pod (re)connected while no drill is running: flash its number colour
@@ -265,7 +300,7 @@ void loop() {
     const PodStatus st = pods->status(i);
     if (st == lastStatus[i]) continue;
     lastStatus[i] = st;
-    if (st == PodStatus::Connected && !ui->drillActive()) {
+    if (st == PodStatus::Connected && !ui->podsInUse()) {
       pods->setColour(i, kPodColours[i]);
       identOffAt[i] = now + 1500;
       board.beep(1800, 60);

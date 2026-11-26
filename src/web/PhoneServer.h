@@ -11,7 +11,7 @@
 #include <functional>
 
 struct WebCmd {
-  enum Type : uint8_t { Hello, Start, Stop, Done, Repeat, Drill, Seconds, Player, Rename, Flash };
+  enum Type : uint8_t { Hello, Start, Stop, Done, Repeat, Drill, Seconds, Player, Rename, Flash, Groups };
   Type type;
   int16_t value;      // drill / seconds / player / pod
   uint16_t time[6];   // Hello: phone's local Y, M, D, h, m, s (0 = not sent)

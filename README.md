@@ -5,7 +5,7 @@ A small box (an M5Stack Dial) that runs reaction-light drills on your BlazePods.
 > Unofficial personal project. Not affiliated with or endorsed by BlazePod / PLAY COYOTTA LTD.
 > **Once Pod Hub works, don't update your pods' firmware in the official app.** An update could change how the pods talk, and the hub would stop working.
 
-**Status: milestone 4.** The hub works on its own with the knob, and now also from a phone. History, CSV export and the one-click installer come in later milestones. This page will become a step-by-step guide for parents.
+**Status: milestone 5.** All five drills, history per player with trends, and CSV download. The one-click installer and updates over Wi-Fi come next. This page will become a step-by-step guide for parents.
 
 ---
 
@@ -49,17 +49,21 @@ While searching, the Dial lists the strongest Bluetooth devices it can hear: nam
 
 | Do this | What happens |
 |---|---|
-| **Turn** the knob on the home screen | Choose a drill: Reaction, Sprint, Sequence |
+| **Turn** the knob on the home screen | Choose a drill: Reaction, Sprint, Sequence, Colour call, Left / right |
 | **Press** | Start: 3-2-1 countdown with beeps, then go |
 | **Press** during a drill | Stop early |
 | **Turn** on the results | Results for each pod. **Press** to go back |
-| **Hold 3 s** | Menu: player, drill length, sound, brightness, phone mode, find pods again, auto switch-off, demo pods, switch off |
+| **Hold 3 s** | Menu: player, drill length, left/right pods, sound, brightness, phone mode, find pods again, auto switch-off, demo pods, switch off |
 
 The drills:
 
 - **Reaction:** one random pod lights white. Hit it, and the next one lights 0.5 to 2 s later. Never the same pod twice in a row.
 - **Sprint:** as many hits as you can, the next pod lights straight away.
 - **Sequence:** pods light in order 1, 2, 3, 4, for conditioning circuits.
+- **Colour call:** a green pod and a red pod light together. Hit the green one. The red one is a decoy, and hitting it counts as **wrong** (low buzz). Like reading the defence.
+- **Left / right:** one pod on each side lights in the same colour. **Blue = hit the left one, yellow = hit the right one.** Hitting the other one counts as wrong.
+
+**Setting up left and right:** put the pods where you want them, then go to **Menu → Left/right pods** (or tap **Set left / right pods** on the phone when Left / right is selected). The left pods glow blue and the right ones yellow. **Tap a pod to swap its side**, then press the Dial to save. Hold the Dial to cancel. Until you set them, pods 1 and 2 are left and 3 and 4 are right.
 
 Each light gives you 3 s, or it counts as a miss (double beep). Drills last 30 s by default (change it in the menu: 20, 30, 45 or 60 s). The reaction time shown is the one the pod measured.
 
@@ -76,7 +80,9 @@ Each light gives you 3 s, or it counts as a miss (double beep). Drills last 30 s
 3. From the page you can pick the drill and length, start and stop, see live hits and times, see results with the per-pod breakdown, and tap **Go again**. Tap a pod circle to make that pod flash.
 4. Tap the player name at the top to **choose who's training** and **rename players**.
 
-The phone and the Dial stay in step: start on one and the other follows. The first time a phone connects, it also sets the Dial's clock, ready for session history.
+The phone and the Dial stay in step: start on one and the other follows. When a phone connects it also sets the Dial's clock, so sessions are saved with the right date and time.
+
+**History:** every drill is saved for the player who did it, with every hit, miss and wrong pod. The latest 200 sessions are kept. On the phone, tap **History** to see recent sessions and a trend for each drill: average reaction time for Reaction, Colour call and Left / right (lower is better), and hits for Sprint and Sequence (higher is better). Demo and stopped sessions are listed but left out of the trend. **Download (CSV)** gives a spreadsheet with one row per session, for one player or everyone. If the download doesn't start in the pop-up window, open `192.168.4.1` in Safari and download from there.
 
 **Demo pods:** **Menu → Demo pods** simulates 4 pods with realistic reaction times, so you can try the drills with no pods. The Dial restarts to switch. Demo results never count as personal bests.
 

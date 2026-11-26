@@ -23,6 +23,8 @@ class DialUi {
     std::function<uint8_t()> phoneClients;
     std::function<void()> restart;             // e.g. after toggling demo pods
     std::function<uint16_t()> devicesHeard;     // BLE diagnostics (0 if n/a)
+    // A drill ended: save it to history.
+    std::function<void(const DrillConfig&, const DrillResult&, bool pb)> sessionFinished;
   };
 
   DialUi(Board& board, PodDriver& pods, DrillEngine& engine, Settings& settings, Hooks hooks)
@@ -32,6 +34,8 @@ class DialUi {
   void loop(uint32_t now);
   void showPhoneQr();
   bool drillActive() const;
+  // True while the pods' lights belong to the UI (drill or setup screen).
+  bool podsInUse() const { return drillActive() || screen_ == Screen::Groups; }
 
   // --- same actions as the knob/press, for the phone page ---
   uint8_t selectedDrill() const { return drill_; }
@@ -44,11 +48,16 @@ class DialUi {
   void stopDrill(uint32_t now);
   void closeResults();
   void noteActivity(uint32_t now) { lastActivityAt_ = now; }
+  // Every tap from the pods (the engine gets them too). Used by setup screens.
+  void onTap(const PodTap& tap);
+  // Left/right setup: tap the pods to swap sides, press the Dial to save.
+  void startGroupSetup();
+  uint8_t leftMask() const;
 
  private:
-  enum class Screen : uint8_t { Home, Countdown, Running, Results, Menu, ConfirmOff, AutoOffWarn, PhoneQr };
+  enum class Screen : uint8_t { Home, Countdown, Running, Results, Menu, ConfirmOff, AutoOffWarn, PhoneQr, Groups };
   enum MenuItem : uint8_t {
-    kBack, kPlayer, kDrillLength, kSound, kBrightness, kPhone, kRescan, kAutoOff, kDemo, kShutDown, kMenuCount
+    kBack, kPlayer, kDrillLength, kGroups, kSound, kBrightness, kPhone, kRescan, kAutoOff, kDemo, kShutDown, kMenuCount
   };
 
   void go(Screen s);
@@ -73,6 +82,9 @@ class DialUi {
   void drawConfirmOff();
   void drawAutoOffWarn(uint32_t secondsLeft);
   void drawPhoneQr();
+  void drawGroups();
+  void showGroupsOnPods();
+  void endGroupSetup(bool save);
   void menuLabel(uint8_t item, char* label, size_t ln, char* value, size_t vn);
   uint16_t podColour(uint8_t i) const;
 
@@ -101,4 +113,5 @@ class DialUi {
   uint32_t hintUntil_ = 0;
   PodStatus shownStatus_[6] = {};
   char playerName_[16] = "";
+  uint8_t groupsEdit_ = 0;  // working copy while setting up left/right
 };

@@ -21,6 +21,8 @@ src/
   engine/DrillEngine.*     drill state machine (no Arduino deps, unit tested)
   engine/DrillConfig.h     drill = data; engine/Drills.h = catalogue
   storage/PersonalBests.h  PBs per player/drill/length (NVS)
+  storage/Results.*        session history on LittleFS + RAM summaries + CSV export
+  storage/ShotFormat.h     compact per-round log format (unit tested)
   storage/Players.h        player names (NVS)
   settings/Settings.h      NVS settings
   web/PhoneServer.*        Wi-Fi AP "PodHub", captive DNS, AsyncWebServer, WebSocket /ws
@@ -32,6 +34,7 @@ tools/page_test/           fake hub + Playwright screenshots of every phone scre
   pods/blazepod_protocol.* pure protocol functions (unit tested)
 test/test_protocol/        Unity tests: checksum, colour, tap parsing
 test/test_engine/          Unity tests: drill engine against MockPodDriver
+test/test_storage/         Unity tests: session log format round trip
 ```
 
 ## BlazePod protocol notes
@@ -66,6 +69,17 @@ When a pod is first assigned a number, its address and manufacturer data are sav
 ### Drill engine
 
 `DrillEngine` is a non-blocking state machine (Idle, Countdown, Running, Finished). It's driven by `tick(now)` and `onTap(tap, now)` and reports what happened through `pollEvent()`. It lights pods with "off on tap" and scores the pod-measured ms. A lit pod that disconnects doesn't count as a miss. Random picks never repeat the previous pod. Time is passed in, so the tests drive it deterministically.
+
+### Rounds, decoys and the shot log
+
+Each round has one target and, for Colour call and Left/right, decoys (`RoundMode`). Hitting the target scores the pod-measured ms. Hitting a decoy is a mistake and ends the round. Every outcome is appended to `DrillResult::shots` (up to 400). Left/right reads `DrillConfig::leftMask`, which comes from `Settings::leftMask` (0 means pods 1 to n/2 are left). The setup screen lights the pods in the cue colours and toggles a pod's side when it's tapped (`DialUi::onTap`).
+
+### History storage
+
+- **File:** `/sessions.jsonl` on the LittleFS `spiffs` partition (1.5 MB), one line per session, written by hand to avoid a large buffer. Fields: id, time (from the RTC, empty until a phone has set it), player and name at the time, drill id and name, seconds, demo, aborted, pb, hits, misses, mistakes, avg, best, worst, durMs, and shots: `"1h321 3m 2d 4h287"`, which is pod (1-based), `h`it with ms, `m`iss, or `d`ecoy.
+- **In RAM:** one summary per line for `/api/history`. Once the file reaches 220 lines it's rewritten with the newest 200.
+- **Locking:** one mutex covers every file access. Saves happen in `loop()`; history and CSV are served from the web task.
+- **`/api/export.csv?player=N`** writes `/export.csv` (one row per session, with hit times separated by `;` and the raw shots) and serves it as a download.
 
 ### Knob
 
