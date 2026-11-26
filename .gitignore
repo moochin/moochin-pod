@@ -1,3 +1,5 @@
 .pio/
 .vscode/
 *.pyc
+src/web/index_html_gz.h
+node_modules/

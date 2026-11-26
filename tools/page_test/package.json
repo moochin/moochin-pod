@@ -1,0 +1,6 @@
+{
+  "name": "podhub-page-test",
+  "private": true,
+  "description": "Drives data/index.html against a fake hub WebSocket and screenshots every screen",
+  "dependencies": { "ws": "8.18.0" }
+}

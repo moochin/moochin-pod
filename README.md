@@ -5,7 +5,7 @@ A small box (an M5Stack Dial) that runs reaction-light drills on your BlazePods.
 > Unofficial personal project. Not affiliated with or endorsed by BlazePod / PLAY COYOTTA LTD.
 > **Once Pod Hub works, don't update your pods' firmware in the official app.** An update could change how the pods talk, and the hub would stop working.
 
-**Status: milestone 3.** The hub is usable on its own: turn the knob to pick a drill, press to start, and see the results on the Dial. The full phone page, history and the one-click installer come in later milestones. This page will become a step-by-step guide for parents.
+**Status: milestone 4.** The hub works on its own with the knob, and now also from a phone. History, CSV export and the one-click installer come in later milestones. This page will become a step-by-step guide for parents.
 
 ---
 
@@ -68,6 +68,15 @@ Each light gives you 3 s, or it counts as a miss (double beep). Drills last 30 s
 **Switching off:** **Menu → Switch off**, then press to confirm. On battery that cuts the power completely. Switch it back on the way you normally do (the WAKE button). On USB power the Dial can't switch itself off, so it just goes dark until you unplug it. It also switches itself off after **15 minutes** unused, with a 30-second countdown first; any press or turn cancels it. Change or disable this under **Menu → Auto switch-off**. It never switches off during a drill or while a phone is connected.
 
 **Battery level:** the Dial has no way to measure its battery, so the level isn't shown.
+
+**Using a phone (optional):**
+
+1. On the Dial, go to **Menu → Phone mode** and press to turn it on. A QR code appears.
+2. Point the iPhone camera at the QR code and tap **Join "PodHub"**. The control page should open by itself. If it doesn't, open Safari and go to `192.168.4.1` (or `pod.hub`).
+3. From the page you can pick the drill and length, start and stop, see live hits and times, see results with the per-pod breakdown, and tap **Go again**. Tap a pod circle to make that pod flash.
+4. Tap the player name at the top to **choose who's training** and **rename players**.
+
+The phone and the Dial stay in step: start on one and the other follows. The first time a phone connects, it also sets the Dial's clock, ready for session history.
 
 **Demo pods:** **Menu → Demo pods** simulates 4 pods with realistic reaction times, so you can try the drills with no pods. The Dial restarts to switch. Demo results never count as personal bests.
 

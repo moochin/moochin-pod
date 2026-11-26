@@ -23,8 +23,9 @@ src/
   storage/PersonalBests.h  PBs per player/drill/length (NVS)
   storage/Players.h        player names (NVS)
   settings/Settings.h      NVS settings
-  web/PhoneServer.*        Wi-Fi AP "PodHub", captive DNS, AsyncWebServer
-  web/status_page.h        milestone 2 status page (inline HTML)
+  web/PhoneServer.*        Wi-Fi AP "PodHub", captive DNS, AsyncWebServer, WebSocket /ws
+data/index.html            phone page (single file); gzipped into src/web/index_html_gz.h at build
+tools/page_test/           fake hub + Playwright screenshots of every phone screen
   pods/PodDriver.h         hardware-agnostic pod interface (BLE now, ESP-NOW later)
   pods/BlazePodDriver.*    NimBLE central implementation
   pods/MockPodDriver.*     simulated pods ("Demo pods" setting + native tests)
@@ -73,6 +74,15 @@ The ISR decodes full quadrature on GPIO41/40 (same pins as M5Stack's M5Dial libr
 ### Power
 
 The Dial has no PMIC or battery ADC (M5Unified configures neither for the Dial), so no battery level. `Board::powerOff()` → `M5.Power.powerOff()` drives GPIO46 (power hold) low, which cuts the power on battery. On USB it falls through to deep sleep.
+
+### Phone page
+
+- `data/index.html` is the whole UI, with no external resources. `scripts/embed_web.py` (a PlatformIO pre-script) gzips it into the generated `src/web/index_html_gz.h`, which is gitignored. It's served from flash with `Content-Encoding: gzip`, so an OTA firmware update also updates the page.
+- **Protocol:** the hub pushes `{"t":"state", ...}` on every change, about once a second during a drill and every 2 s otherwise. The page sends `{"cmd": "hello"|"start"|"stop"|"repeat"|"done"|"drill"|"seconds"|"player"|"rename"|"flash", ...}`.
+- **Threading:** commands are parsed in the AsyncTCP task and queued (`WebCmd`). `loop()` applies them through `DialUi`, so the Dial and the phone always agree.
+- **Clock:** `hello` carries the phone's local time, which sets the Dial's RTC (session timestamps for milestone 5).
+- **Captive portal:** a connectivity check from a phone that hasn't opened the page gets a redirect, which opens the portal. Once a phone has opened the page (its IP sent `hello`), its checks get the normal "online" answer: Apple `Success`, Android `204`, Windows `Connect Test`. iOS then shows "Done" instead of "Cancel" and stays on the network.
+- **Test without hardware:** `(cd tools/page_test && npm install) && node tools/page_test/run.js data/index.html /tmp/shots`
 
 ### Limits to keep in mind
 

@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Pod Hub</title>
+<style>
+:root{
+  --bg:#ffffff;--fg:#0b0b0b;--dim:#555;--line:#d6d6d6;--card:#f2f2f2;
+  --accent:#0057d9;--accent-fg:#fff;--go:#0a7a3d;--go-fg:#fff;--stop:#c0261c;--stop-fg:#fff;
+  --pb:#ffcc00;--pod-off:#9a9a9a;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#000;--fg:#fff;--dim:#a8a8a8;--line:#333;--card:#161616;
+  --accent:#4d9bff;--accent-fg:#000;--go:#3ddc84;--go-fg:#000;--stop:#ff5a4e;--stop-fg:#000;--pod-off:#555;
+}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--fg)}
+body{font:18px/1.3 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;
+  padding:max(12px,env(safe-area-inset-top)) 16px max(20px,env(safe-area-inset-bottom));max-width:560px;margin:0 auto}
+button{font:inherit;color:inherit;border:0;cursor:pointer}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.player{background:var(--card);border-radius:999px;padding:10px 16px;font-weight:700;font-size:19px;
+  display:flex;align-items:center;gap:8px;min-height:48px;max-width:70%}
+.player span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conn{font-size:14px;color:var(--dim);display:flex;align-items:center;gap:6px}
+.conn i{width:12px;height:12px;border-radius:50%;background:var(--stop);display:inline-block}
+.conn.on i{background:var(--go)}
+h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:20px 0 8px}
+.pods{display:flex;gap:10px;flex-wrap:wrap}
+.pod{width:54px;height:54px;border-radius:50%;font-size:22px;font-weight:800;color:#000;
+  background:var(--pod-off);display:flex;align-items:center;justify-content:center;position:relative}
+.pod.lit{outline:4px solid var(--fg);outline-offset:3px}
+.hint{color:var(--dim);font-size:15px;margin:6px 0 0}
+.tiles{display:grid;gap:10px}
+.tile{background:var(--card);border-radius:16px;padding:16px 18px;text-align:left;border:3px solid transparent;min-height:72px}
+.tile b{display:block;font-size:22px}
+.tile small{color:var(--dim);font-size:15px}
+.tile.sel{border-color:var(--accent)}
+.seg{display:flex;gap:8px}
+.seg button{flex:1;background:var(--card);border-radius:12px;min-height:52px;font-weight:700;border:3px solid transparent}
+.seg button.sel{border-color:var(--accent)}
+.big{display:block;width:100%;min-height:84px;border-radius:20px;font-size:30px;font-weight:800;margin-top:22px}
+.go{background:var(--go);color:var(--go-fg)}
+.go:disabled{background:var(--card);color:var(--dim)}
+.stop{background:var(--stop);color:var(--stop-fg)}
+.second{background:var(--card);min-height:64px;font-size:22px;margin-top:12px}
+.center{text-align:center}
+.count{font-size:min(48vw,240px);font-weight:900;line-height:1;margin:30px 0 10px;font-variant-numeric:tabular-nums}
+.hits{font-size:min(36vw,170px);font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
+.label{color:var(--dim);font-size:18px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
+.stat{background:var(--card);border-radius:14px;padding:12px 14px}
+.stat b{display:block;font-size:30px;font-variant-numeric:tabular-nums}
+.stat span{color:var(--dim);font-size:15px}
+.bar{height:16px;background:var(--card);border-radius:8px;overflow:hidden;margin-top:18px}
+.bar i{display:block;height:100%;background:var(--accent);width:100%;transition:width .25s linear}
+.pb{display:inline-block;background:var(--pb);color:#000;font-weight:900;font-size:26px;padding:6px 18px;border-radius:999px;margin-bottom:8px}
+table{width:100%;border-collapse:collapse;margin-top:14px;font-size:17px}
+td,th{padding:8px 6px;text-align:right;border-bottom:1px solid var(--line)}
+th{color:var(--dim);font-weight:600;font-size:14px}
+td:first-child,th:first-child{text-align:left}
+.dot{display:inline-block;width:18px;height:18px;border-radius:50%;vertical-align:-3px;margin-right:6px}
+.banner{background:var(--stop);color:var(--stop-fg);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-weight:700}
+dialog{border:0;border-radius:20px;padding:18px;width:min(92vw,480px);background:var(--bg);color:var(--fg)}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+.plist{display:grid;gap:8px;margin:10px 0}
+.plist button{background:var(--card);border-radius:12px;min-height:56px;text-align:left;padding:0 16px;font-weight:700;border:3px solid transparent}
+.plist button.sel{border-color:var(--accent)}
+input{font:inherit;width:100%;min-height:52px;border-radius:12px;border:2px solid var(--line);padding:0 14px;background:var(--bg);color:var(--fg)}
+.row{display:flex;gap:8px;margin-top:10px}
+.row button{flex:1;min-height:52px;border-radius:12px;font-weight:700;background:var(--card)}
+.row .primary{background:var(--accent);color:var(--accent-fg)}
+details{margin-top:28px;color:var(--dim);font-size:15px}
+summary{min-height:44px;display:flex;align-items:center}
+.kv{display:flex;justify-content:space-between;padding:4px 0}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="banner" id="offline" hidden>Not connected to the hub. Is phone mode on?</div>
+
+<header>
+  <button class="player" id="playerBtn" aria-label="Choose player"><span id="playerName">Player</span> ▾</button>
+  <div class="conn" id="conn"><i></i><span id="connText">Connecting</span></div>
+</header>
+
+<!-- HOME -->
+<section id="home">
+  <h2>Pods <span id="podCount"></span></h2>
+  <div class="pods" id="pods"></div>
+  <p class="hint">Tap a pod to make it flash.</p>
+
+  <h2>Drill</h2>
+  <div class="tiles" id="drills"></div>
+
+  <h2>Length</h2>
+  <div class="seg" id="lengths"></div>
+
+  <button class="big go" id="startBtn">Start</button>
+
+  <details id="details">
+    <summary>Hub details</summary>
+    <div id="detailsBody">…</div>
+  </details>
+</section>
+
+<!-- RUNNING -->
+<section id="run" class="center" hidden>
+  <div id="cdWrap">
+    <div class="label" id="cdName"></div>
+    <div class="count" id="cd">3</div>
+    <div class="label">Get ready</div>
+  </div>
+  <div id="liveWrap" hidden>
+    <div class="label" id="runName"></div>
+    <div class="hits" id="runHits">0</div>
+    <div class="label">hits</div>
+    <div class="bar"><i id="runBar"></i></div>
+    <div class="stats">
+      <div class="stat"><b id="runLast">–</b><span>last (ms)</span></div>
+      <div class="stat"><b id="runAvg">–</b><span>average (ms)</span></div>
+      <div class="stat"><b id="runMiss">0</b><span>missed</span></div>
+      <div class="stat"><b id="runLeft">–</b><span>seconds left</span></div>
+    </div>
+  </div>
+  <button class="big stop" id="stopBtn">Stop</button>
+</section>
+
+<!-- RESULTS -->
+<section id="res" class="center" hidden>
+  <div class="label" id="resName"></div>
+  <div class="pb" id="resPb" hidden>New PB!</div>
+  <div class="hits" id="resHits">0</div>
+  <div class="label">hits</div>
+  <div class="stats">
+    <div class="stat"><b id="resAvg">–</b><span>average (ms)</span></div>
+    <div class="stat"><b id="resBest">–</b><span>best (ms)</span></div>
+    <div class="stat"><b id="resWorst">–</b><span>slowest (ms)</span></div>
+    <div class="stat"><b id="resMiss">0</b><span>missed</span></div>
+  </div>
+  <table>
+    <thead><tr><th>Pod</th><th>Hits</th><th>Avg</th><th>Best</th><th>Missed</th></tr></thead>
+    <tbody id="resPods"></tbody>
+  </table>
+  <button class="big go" id="repeatBtn">Go again</button>
+  <button class="big second" id="doneBtn">Done</button>
+</section>
+
+<!-- PLAYERS -->
+<dialog id="players">
+  <h2 style="margin-top:0">Who's training?</h2>
+  <div class="plist" id="plist"></div>
+  <h2>Rename <span id="renameWho"></span></h2>
+  <input id="renameInput" maxlength="15" autocomplete="off" autocapitalize="words" placeholder="Name">
+  <div class="row">
+    <button id="closePlayers">Close</button>
+    <button class="primary" id="saveName">Save name</button>
+  </div>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ws, st = null, retry = 500, rxAt = 0;
+
+// ---------------------------------------------------------------- socket
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => {
+    retry = 500;
+    const d = new Date();
+    // Sets the Dial's clock from the phone (used to timestamp sessions).
+    send({cmd: 'hello', time: [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()]});
+    setConn(true);
+  };
+  ws.onmessage = (e) => {
+    try { const m = JSON.parse(e.data); if (m.t === 'state') { st = m; rxAt = performance.now(); render(); } } catch (_) {}
+  };
+  ws.onclose = () => { setConn(false); setTimeout(connect, retry); retry = Math.min(retry * 2, 4000); };
+  ws.onerror = () => ws.close();
+}
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+function setConn(on) {
+  $('conn').classList.toggle('on', on);
+  $('connText').textContent = on ? 'Hub' : 'Offline';
+  $('offline').hidden = on;
+}
+
+// ---------------------------------------------------------------- render
+const fmt = (ms) => ms ? String(ms) : '–';
+function show(id) { for (const s of ['home', 'run', 'res']) $(s).hidden = s !== id; }
+
+function render() {
+  if (!st) return;
+  $('playerName').textContent = st.players[st.player] || 'Player';
+  const view = st.phase === 'countdown' || st.phase === 'running' ? 'run' : st.phase === 'finished' ? 'res' : 'home';
+  show(view);
+  if (view === 'home') renderHome();
+  if (view === 'run') renderRun();
+  if (view === 'res') renderRes();
+  if ($('players').open) renderPlayers();
+}
+
+function renderHome() {
+  const connected = st.pods.filter((p) => p.st === 'connected').length;
+  $('podCount').textContent = `${connected} / ${st.pods.length}`;
+  $('pods').innerHTML = st.pods.map((p, i) =>
+    `<button class="pod" data-pod="${i}" style="background:${p.st === 'connected' ? p.c : ''}" aria-label="Pod ${p.n}">${p.n}</button>`).join('');
+  $('drills').innerHTML = st.drills.map((d, i) =>
+    `<button class="tile${i === st.drill ? ' sel' : ''}" data-drill="${i}"><b>${d.name}</b><small>${d.desc}</small></button>`).join('');
+  $('lengths').innerHTML = st.secondsOptions.map((s) =>
+    `<button class="${s === st.seconds ? 'sel' : ''}" data-sec="${s}">${s} s</button>`).join('');
+  const b = $('startBtn');
+  b.disabled = connected === 0;
+  b.textContent = connected ? 'Start' : 'Waiting for pods…';
+}
+
+function renderRun() {
+  const r = st.run || {};
+  const cd = st.phase === 'countdown';
+  $('cdWrap').hidden = !cd;
+  $('liveWrap').hidden = cd;
+  const name = st.drills[st.drill] ? st.drills[st.drill].name : '';
+  $('cdName').textContent = name;
+  $('runName').textContent = name;
+  if (cd) { $('cd').textContent = st.countdown; return; }
+  $('runHits').textContent = r.hits;
+  $('runLast').textContent = fmt(r.lastMs);
+  $('runAvg').textContent = fmt(r.avgMs);
+  $('runMiss').textContent = r.misses;
+  tickTimer();
+}
+
+// Smooth the time bar between updates using the phone's clock.
+function tickTimer() {
+  if (!st || st.phase !== 'running' || !st.run || !st.run.durationMs) return;
+  const left = Math.max(0, st.run.remainingMs - (performance.now() - rxAt));
+  $('runBar').style.width = (100 * left / st.run.durationMs).toFixed(1) + '%';
+  $('runLeft').textContent = Math.ceil(left / 1000);
+}
+setInterval(tickTimer, 250);
+
+function renderRes() {
+  const r = st.result || {};
+  $('resName').textContent = (st.drills[st.drill] ? st.drills[st.drill].name : '') + (r.aborted ? ' (stopped)' : '');
+  $('resPb').hidden = !r.pb;
+  $('resHits').textContent = r.hits;
+  $('resAvg').textContent = fmt(r.avgMs);
+  $('resBest').textContent = fmt(r.bestMs);
+  $('resWorst').textContent = fmt(r.worstMs);
+  $('resMiss').textContent = r.misses;
+  $('resPods').innerHTML = (r.pods || []).map((p, i) =>
+    `<tr><td><span class="dot" style="background:${st.pods[i] ? st.pods[i].c : '#999'}"></span>${i + 1}</td>` +
+    `<td>${p.hits}</td><td>${fmt(p.avgMs)}</td><td>${fmt(p.bestMs)}</td><td>${p.misses}</td></tr>`).join('');
+}
+
+// ---------------------------------------------------------------- players
+let editing = 0;
+function renderPlayers() {
+  $('plist').innerHTML = st.players.map((n, i) =>
+    `<button class="${i === st.player ? 'sel' : ''}" data-player="${i}">${esc(n)}</button>`).join('');
+  $('renameWho').textContent = st.players[editing] || '';
+}
+function esc(s) { return s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c])); }
+
+// ---------------------------------------------------------------- input
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button');
+  if (!t) return;
+  if (t.dataset.pod !== undefined) send({cmd: 'flash', pod: +t.dataset.pod});
+  else if (t.dataset.drill !== undefined) send({cmd: 'drill', drill: +t.dataset.drill});
+  else if (t.dataset.sec !== undefined) send({cmd: 'seconds', seconds: +t.dataset.sec});
+  else if (t.dataset.player !== undefined) {
+    editing = +t.dataset.player;
+    send({cmd: 'player', player: editing});
+    $('renameInput').value = st.players[editing] || '';
+    renderPlayers();  // update the "Rename ..." label now, not on the hub's reply
+  }
+});
+$('startBtn').onclick = () => send({cmd: 'start'});
+$('stopBtn').onclick = () => send({cmd: 'stop'});
+$('repeatBtn').onclick = () => send({cmd: 'repeat'});
+$('doneBtn').onclick = () => send({cmd: 'done'});
+$('playerBtn').onclick = () => {
+  if (!st) return;
+  editing = st.player;
+  $('renameInput').value = st.players[editing] || '';
+  renderPlayers();
+  $('players').showModal();
+};
+$('closePlayers').onclick = () => $('players').close();
+$('saveName').onclick = () => {
+  const name = $('renameInput').value.trim().slice(0, 15);
+  if (name) send({cmd: 'rename', player: editing, name});
+};
+$('details').addEventListener('toggle', async () => {
+  if (!$('details').open) return;
+  try {
+    const d = await (await fetch('/api/status', {cache: 'no-store'})).json();
+    const kb = (b) => Math.round(b / 1024) + ' KB';
+    const up = Math.floor(d.up / 1000);
+    $('detailsBody').innerHTML = [
+      ['Running for', `${Math.floor(up / 60)} min ${up % 60} s`],
+      ['Free memory', `${kb(d.heap)} (lowest ${kb(d.minHeap)})`],
+      ...d.pods.map((p) => [`Pod ${p.n}`, p.st === 'connected' ? `${p.rssi ? p.rssi + ' dB, ' : ''}${p.drops} drops` : p.st]),
+    ].map(([k, v]) => `<div class="kv"><span>${k}</span><span>${v}</span></div>`).join('');
+  } catch (_) { $('detailsBody').textContent = 'Could not load.'; }
+});
+
+connect();
+</script>
+</body>
+</html>

@@ -1,13 +1,16 @@
 // Pod Hub firmware: wiring only. See src/ui/DialUi.* for the on-Dial UI,
 // src/engine for drills, src/pods for the pod drivers.
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <esp_heap_caps.h>
 
 #include "board/Board.h"
 #include "engine/DrillEngine.h"
+#include "engine/Drills.h"
 #include "pods/BlazePodDriver.h"
 #include "pods/MockPodDriver.h"
 #include "settings/Settings.h"
+#include "storage/Players.h"
 #include "ui/DialUi.h"
 #include "web/PhoneServer.h"
 
@@ -63,6 +66,146 @@ static void buildStatus(String& out) {
   out += "]}";
 }
 
+// ------------------------------------------------------------------ phone page
+
+// Everything the phone page shows, sent over the WebSocket.
+static void buildState(String& out) {
+  const uint32_t now = millis();
+  JsonDocument doc;
+  doc["t"] = "state";
+  const DrillPhase ph = engine->phase();
+  doc["phase"] = ph == DrillPhase::Countdown ? "countdown"
+                 : ph == DrillPhase::Running ? "running"
+                 : ph == DrillPhase::Finished ? "finished"
+                                              : "idle";
+  doc["countdown"] = engine->countdown();
+  doc["drill"] = ui->selectedDrill();
+  JsonArray dl = doc["drills"].to<JsonArray>();
+  for (uint8_t i = 0; i < drills::kCount; i++) {
+    JsonObject d = dl.add<JsonObject>();
+    d["name"] = drills::byIndex(i, 0).name;
+    d["desc"] = drills::description(i);
+  }
+  doc["seconds"] = settings.drillSeconds;
+  JsonArray so = doc["secondsOptions"].to<JsonArray>();
+  for (uint8_t s : Settings::kDrillSecondsOptions) so.add(s);
+  doc["player"] = settings.player;
+  JsonArray pl = doc["players"].to<JsonArray>();
+  char name[players::kNameLen];
+  for (uint8_t i = 0; i < Settings::kPlayers; i++) {
+    players::name(i, name, sizeof(name));
+    pl.add(name);
+  }
+  JsonArray pa = doc["pods"].to<JsonArray>();
+  for (uint8_t i = 0; i < pods->maxPods(); i++) {
+    JsonObject p = pa.add<JsonObject>();
+    p["n"] = i + 1;
+    p["st"] = pods->status(i) == PodStatus::Connected ? "connected" : "searching";
+    p["c"] = kPodHex[i % 6];
+  }
+  doc["demo"] = settings.demoPods;
+  const DrillResult& r = engine->result();
+  if (ph == DrillPhase::Countdown || ph == DrillPhase::Running) {
+    JsonObject run = doc["run"].to<JsonObject>();
+    run["hits"] = r.hits;
+    run["misses"] = r.misses;
+    run["lastMs"] = engine->lastHitMs();
+    run["avgMs"] = r.averageMs();
+    run["remainingMs"] = engine->remainingMs(now);
+    run["durationMs"] = engine->config().durationMs;
+    run["lit"] = engine->litPod();
+  } else if (ph == DrillPhase::Finished) {
+    JsonObject res = doc["result"].to<JsonObject>();
+    res["hits"] = r.hits;
+    res["misses"] = r.misses;
+    res["wrong"] = r.wrongTaps;
+    res["avgMs"] = r.averageMs();
+    res["bestMs"] = r.bestMs;
+    res["worstMs"] = r.worstMs;
+    res["aborted"] = r.aborted;
+    res["pb"] = ui->lastResultWasPb();
+    JsonArray rp = res["pods"].to<JsonArray>();
+    for (uint8_t i = 0; i < pods->maxPods() && i < DrillResult::kMaxPods; i++) {
+      JsonObject p = rp.add<JsonObject>();
+      p["hits"] = r.podHits[i];
+      p["misses"] = r.podMisses[i];
+      p["avgMs"] = r.podAverageMs(i);
+      p["bestMs"] = r.podBestMs[i];
+    }
+  }
+  serializeJson(doc, out);
+}
+
+static void flashPod(uint8_t i, uint32_t now) {
+  if (i >= pods->maxPods() || i >= 6 || ui->drillActive()) return;
+  if (pods->setColour(i, kPodColours[i])) identOffAt[i] = now + 1500;
+}
+
+// The phone's clock sets the Dial's RTC (used to timestamp sessions).
+static void setClockFromPhone(const uint16_t t[6]) {
+  if (t[0] < 2024 || t[1] < 1 || t[1] > 12 || t[2] < 1 || t[2] > 31) return;
+  m5::rtc_datetime_t dt;
+  dt.date.year = t[0];
+  dt.date.month = t[1];
+  dt.date.date = t[2];
+  dt.time.hours = t[3];
+  dt.time.minutes = t[4];
+  dt.time.seconds = t[5];
+  M5.Rtc.setDateTime(dt);
+  ESP_LOGI(TAG, "clock set from phone: %04u-%02u-%02u %02u:%02u:%02u", t[0], t[1], t[2], t[3], t[4], t[5]);
+}
+
+static void handlePhoneCommands(uint32_t now) {
+  WebCmd c;
+  bool changed = false;
+  while (phone.pollCommand(c)) {
+    changed = true;
+    ui->noteActivity(now);
+    switch (c.type) {
+      case WebCmd::Hello: setClockFromPhone(c.time); break;
+      case WebCmd::Start: ui->startSelected(now); break;
+      case WebCmd::Stop: ui->stopDrill(now); break;
+      case WebCmd::Done: ui->closeResults(); break;
+      case WebCmd::Repeat: ui->startSelected(now); break;
+      case WebCmd::Drill: if (c.value >= 0) ui->selectDrill((uint8_t)c.value); break;
+      case WebCmd::Seconds: if (c.value > 0) ui->setDrillSeconds((uint8_t)c.value); break;
+      case WebCmd::Player: if (c.value >= 0) ui->selectPlayer((uint8_t)c.value); break;
+      case WebCmd::Flash: if (c.value >= 0) flashPod((uint8_t)c.value, now); break;
+      case WebCmd::Rename:
+        if (c.value >= 0 && c.value < Settings::kPlayers) {
+          players::rename((uint8_t)c.value, c.text);
+          ESP_LOGI(TAG, "player %d renamed to '%s'", c.value + 1, c.text);
+          if (c.value == settings.player) ui->reloadPlayerName();
+        }
+        break;
+    }
+  }
+  // Push state: right away after a command or a new page, fast while a
+  // drill runs, otherwise every second.
+  static uint32_t lastPush = 0;
+  static DrillPhase lastPhase = DrillPhase::Idle;
+  static uint16_t lastHits = 0, lastMisses = 0;
+  if (phone.pageClients() == 0) {
+    phone.takeNewClient();
+    return;
+  }
+  const DrillPhase ph = engine->phase();
+  const bool active = ph == DrillPhase::Countdown || ph == DrillPhase::Running;
+  const DrillResult& r = engine->result();
+  const bool eventChange = ph != lastPhase || r.hits != lastHits || r.misses != lastMisses ||
+                           (ph == DrillPhase::Countdown && now - lastPush > 300);
+  if (phone.takeNewClient() || changed || eventChange || now - lastPush > (active ? 1000u : 2000u)) {
+    lastPush = now;
+    lastPhase = ph;
+    lastHits = r.hits;
+    lastMisses = r.misses;
+    String json;
+    json.reserve(1200);
+    buildState(json);
+    phone.broadcast(json);
+  }
+}
+
 static void setPhoneMode(bool on) {
   settings.phoneMode = on;
   if (on)
@@ -96,7 +239,7 @@ void setup() {
   DialUi::Hooks hooks;
   hooks.setPhoneMode = setPhoneMode;
   hooks.phoneOn = [] { return phone.running(); };
-  hooks.phoneClients = [] { return phone.clients(); };
+  hooks.phoneClients = [] { return phone.clients(); };  // Wi-Fi joined counts as "in use"
   hooks.restart = [] { ESP.restart(); };
   hooks.devicesHeard = [] { return usingBle() ? blePods.devicesHeard() : (uint16_t)0; };
   ui = new DialUi(board, *pods, *engine, settings, hooks);
@@ -135,6 +278,7 @@ void loop() {
     }
   }
 
+  handlePhoneCommands(now);
   ui->loop(now);
 
   static uint32_t lastLog = 0;

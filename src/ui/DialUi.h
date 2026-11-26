@@ -33,6 +33,18 @@ class DialUi {
   void showPhoneQr();
   bool drillActive() const;
 
+  // --- same actions as the knob/press, for the phone page ---
+  uint8_t selectedDrill() const { return drill_; }
+  bool lastResultWasPb() const { return resultsPb_; }
+  void selectDrill(uint8_t i);
+  void selectPlayer(uint8_t i);
+  void setDrillSeconds(uint8_t seconds);
+  void reloadPlayerName();
+  bool startSelected(uint32_t now);  // from home or results
+  void stopDrill(uint32_t now);
+  void closeResults();
+  void noteActivity(uint32_t now) { lastActivityAt_ = now; }
+
  private:
   enum class Screen : uint8_t { Home, Countdown, Running, Results, Menu, ConfirmOff, AutoOffWarn, PhoneQr };
   enum MenuItem : uint8_t {

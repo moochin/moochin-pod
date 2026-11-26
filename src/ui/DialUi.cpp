@@ -773,3 +773,56 @@ void DialUi::drawPhoneQr() {
   d.drawString("press to close", cx, 210);
   d.endWrite();
 }
+
+// ------------------------------------------------------------------ remote (phone page)
+
+void DialUi::selectDrill(uint8_t i) {
+  if (drillActive() || i >= drills::kCount) return;
+  drill_ = i;
+  settings_.lastDrill = i;
+  settings_.save();
+  if (screen_ == Screen::Home) dirty_ = true;
+}
+
+void DialUi::selectPlayer(uint8_t i) {
+  if (drillActive() || i >= Settings::kPlayers) return;
+  settings_.player = i;
+  settings_.save();
+  reloadPlayerName();
+}
+
+void DialUi::setDrillSeconds(uint8_t seconds) {
+  if (drillActive()) return;
+  for (uint8_t s : Settings::kDrillSecondsOptions) {
+    if (s == seconds) {
+      settings_.drillSeconds = s;
+      settings_.save();
+      if (screen_ == Screen::Home || screen_ == Screen::Menu) dirty_ = true;
+      return;
+    }
+  }
+}
+
+void DialUi::reloadPlayerName() {
+  players::name(settings_.player, playerName_, sizeof(playerName_));
+  if (screen_ == Screen::Home || screen_ == Screen::Menu) dirty_ = true;
+}
+
+bool DialUi::startSelected(uint32_t now) {
+  if (drillActive()) return false;
+  if (engine_.phase() == DrillPhase::Finished) engine_.reset();
+  startDrill(now);
+  return drillActive();
+}
+
+void DialUi::stopDrill(uint32_t now) {
+  if (!drillActive()) return;
+  engine_.stop(now);
+  board_.beep(600, 150);
+}
+
+void DialUi::closeResults() {
+  if (engine_.phase() != DrillPhase::Finished) return;
+  engine_.reset();
+  go(Screen::Home);
+}

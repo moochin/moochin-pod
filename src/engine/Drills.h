@@ -27,6 +27,15 @@ inline DrillConfig sequence(uint32_t durationMs) {
 
 constexpr uint8_t kCount = 3;
 
+// One line for the phone page's drill tiles.
+inline const char* description(uint8_t i) {
+  switch (i % kCount) {
+    case 1: return "As many hits as you can. Next pod lights straight away.";
+    case 2: return "Pods light in order 1, 2, 3... for circuits.";
+    default: return "Hit the pod that lights. Random gaps, never the same pod twice.";
+  }
+}
+
 inline DrillConfig byIndex(uint8_t i, uint32_t durationMs) {
   switch (i % kCount) {
     case 1: return sprint(durationMs);
