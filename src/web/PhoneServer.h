@@ -11,9 +11,13 @@
 #include <functional>
 
 struct WebCmd {
-  enum Type : uint8_t { Hello, Start, Stop, Done, Repeat, Drill, Seconds, Player, Rename, Flash, Groups };
+  enum Type : uint8_t {
+    Hello, Start, Stop, Done, Repeat, Drill, Seconds, Player, Rename, Flash, Groups,
+    Set,           // text = setting key, value = new value
+    Rescan, EraseHistory, FactoryReset
+  };
   Type type;
-  int16_t value;      // drill / seconds / player / pod
+  int16_t value;      // drill / seconds / player / pod / setting value
   uint16_t time[6];   // Hello: phone's local Y, M, D, h, m, s (0 = not sent)
   char text[16];      // Rename: new name
 };
@@ -38,6 +42,12 @@ class PhoneServer {
   void broadcast(const String& json);
   // True once after a page connects: send it the current state.
   bool takeNewClient();
+
+  // Firmware update over Wi-Fi (POST /api/update). Refused unless allowed
+  // (main clears it while a drill runs).
+  void setUpdateAllowed(bool ok);
+  int8_t updateProgress() const;  // -1 = no update running, else 0..100
+  bool updateSucceeded() const;   // true once a complete image is written
 
  private:
   bool running_ = false;

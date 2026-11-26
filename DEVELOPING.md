@@ -27,6 +27,8 @@ src/
   settings/Settings.h      NVS settings
   web/PhoneServer.*        Wi-Fi AP "PodHub", captive DNS, AsyncWebServer, WebSocket /ws
 data/index.html            phone page (single file); gzipped into src/web/index_html_gz.h at build
+installer/index.html       one-click installer page (ESP Web Tools), built into a site by scripts/make_site.py
+docs/images/               screenshots for the README
 tools/page_test/           fake hub + Playwright screenshots of every phone screen
   pods/PodDriver.h         hardware-agnostic pod interface (BLE now, ESP-NOW later)
   pods/BlazePodDriver.*    NimBLE central implementation
@@ -97,6 +99,22 @@ The Dial has no PMIC or battery ADC (M5Unified configures neither for the Dial),
 - **Clock:** `hello` carries the phone's local time, which sets the Dial's RTC (session timestamps for milestone 5).
 - **Captive portal:** a connectivity check from a phone that hasn't opened the page gets a redirect, which opens the portal. Once a phone has opened the page (its IP sent `hello`), its checks get the normal "online" answer: Apple `Success`, Android `204`, Windows `Connect Test`. iOS then shows "Done" instead of "Cancel" and stays on the network.
 - **Test without hardware:** `(cd tools/page_test && npm install) && node tools/page_test/run.js data/index.html /tmp/shots`
+
+### Versions, releases and the installer
+
+- **Version:** `scripts/version.py` stamps `PODHUB_VERSION` from the `PODHUB_VERSION` environment variable (CI tag builds) or `git describe`. It's shown in the Dial menu title and on the phone's Settings screen.
+- **Release:** push a tag such as `v1.0.0` and `.github/workflows/release.yml` will:
+  - run the tests and build;
+  - attach `podhub-install.bin` (merged image at 0x0) and `podhub-update.bin` (app only, for updates over Wi-Fi) to a GitHub Release;
+  - deploy the installer site to GitHub Pages.
+
+  The site can also be redeployed with **Actions → release → Run workflow**. Pages must be set to **Source: GitHub Actions** (Settings → Pages).
+- **Installer site:** `scripts/make_site.py <build> <out> <version>` builds it from `installer/index.html`. The ESP Web Tools manifest flashes the bootloader (0x0), partitions (0x8000), boot_app0 (0xE000) and app (0x10000) separately, not the merged image, so a USB reinstall without "Erase device" keeps NVS (pods, players, settings). LittleFS history is outside the written range either way. ESP Web Tools is pinned to `esp-web-tools@10.4.0` on unpkg.
+- **Update over Wi-Fi:** `POST /api/update` (multipart), handled in `PhoneServer`. Before anything is written, the first 64 bytes must show an ESP image (0xE9), chip id 0x0009 (ESP32-S3), and the `esp_app_desc_t` magic 0xABCD5432 at offset 32. That magic is only present in app images, which rejects the merged installer image and the bootloader; both cases were checked against real build outputs. Updates are refused while a drill runs. The Dial shows progress, and `loop()` restarts 1.5 s after success so the phone gets its reply first. Writes use the second OTA slot (`default_8MB.csv` has two 3.2 MB app slots).
+
+### Settings over Wi-Fi
+
+`{"cmd":"set","key":...,"value":...}` with keys `sound`, `bright` (0-3), `autoOff` (minutes, 0 = never), `pods` (1-6, restarts), `demo` (0/1, restarts). `eraseHistory` deletes the sessions file and PBs. `factoryReset` clears the NVS namespaces `settings`, `pods`, `players` and `pb`, formats LittleFS, and restarts.
 
 ### Limits to keep in mind
 

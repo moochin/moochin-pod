@@ -34,6 +34,9 @@ struct SessionInfo {
 
 bool begin();  // mounts the filesystem and loads the summaries
 bool save(const SessionInfo& info, const DrillConfig& cfg, const DrillResult& r);
+void eraseAll();  // deletes every saved session
+// Factory reset: wipes the whole filesystem.
+void format();
 uint16_t count();
 
 // Newest first, at most `max`, only `player` (or everyone if player < 0).

@@ -178,6 +178,9 @@ void DialUi::handleInput(uint32_t now) {
       if (turn || press || hold) go(Screen::Home);
       break;
 
+    case Screen::Updating:
+      break;
+
     case Screen::Groups:
       if (press) endGroupSetup(true);
       if (hold) endGroupSetup(false);
@@ -452,6 +455,7 @@ void DialUi::drawFull() {
     case Screen::AutoOffWarn: drawAutoOffWarn(lastWarnSecond_); break;
     case Screen::PhoneQr: drawPhoneQr(); break;
     case Screen::Groups: drawGroups(); break;
+    case Screen::Updating: showUpdate(updatePct_); break;
   }
 }
 
@@ -764,7 +768,7 @@ void DialUi::drawMenu() {
   }
   d.setFont(&fonts::Font0);
   d.setTextColor(TFT_DARKGREY);
-  d.drawString("MENU", cx, 16);
+  d.drawString("MENU  " PODHUB_VERSION, cx, 16);
   d.endWrite();
 }
 
@@ -945,5 +949,47 @@ void DialUi::drawGroups() {
   d.drawString("Press to save", cx, cy + 50);
   d.setTextColor(TFT_DARKGREY);
   d.drawString("Hold to cancel", cx, cy + 72);
+  d.endWrite();
+}
+
+// ------------------------------------------------------------------ settings / update
+
+void DialUi::applySettings() {
+  board_.setBrightnessLevel(settings_.brightness);
+  board_.setSound(settings_.sound);
+  if (screen_ == Screen::Home || screen_ == Screen::Menu) dirty_ = true;
+}
+
+void DialUi::showUpdate(int8_t percent) {
+  M5GFX& d = board_.display();
+  const int cx = board_.width() / 2, cy = board_.height() / 2;
+  if (screen_ != Screen::Updating) {
+    if (drillActive()) engine_.stop(millis());
+    screen_ = Screen::Updating;
+    dirty_ = false;
+    updatePct_ = -2;  // force a full draw
+  }
+  if (percent == updatePct_) return;
+  d.startWrite();
+  if (updatePct_ == -2) {
+    d.fillScreen(TFT_BLACK);
+    d.fillArc(cx, cy, 108, 118, 0, 360, (uint16_t)0x2104);
+    d.setTextDatum(middle_center);
+    d.setFont(kMedium);
+    d.setTextColor(TFT_WHITE);
+    d.drawString("Updating", cx, cy - 34);
+    d.setFont(kSmall);
+    d.setTextColor(TFT_LIGHTGREY);
+    d.drawString("Keep it switched on", cx, cy + 44);
+  }
+  updatePct_ = percent;
+  const int pct = percent < 0 ? 0 : percent;
+  if (pct > 0) d.fillArc(cx, cy, 108, 118, -90.0f, -90.0f + 3.6f * pct, TFT_CYAN);
+  d.setFont(&fonts::Font7);
+  d.setTextDatum(middle_center);
+  d.setTextColor(TFT_WHITE, TFT_BLACK);
+  d.setTextPadding(110);
+  d.drawNumber(pct, cx, cy + 4);
+  d.setTextPadding(0);
   d.endWrite();
 }

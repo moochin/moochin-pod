@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <DNSServer.h>
+#include <Update.h>
 #include <LittleFS.h>
 #include <ESPAsyncWebServer.h>
 #include <WiFi.h>
@@ -16,6 +17,88 @@ static AsyncWebSocket ws("/ws");
 static DNSServer dns;
 static const IPAddress kIp(192, 168, 4, 1);
 static QueueHandle_t cmdQueue = nullptr;
+
+// ---- firmware update state (written in the web task, read in loop) ----
+static volatile bool updateAllowed = true;
+static volatile int8_t updatePct = -1;
+static volatile bool updateDone = false;
+static String updateError;
+static size_t updateTotal = 0;
+static uint8_t headBuf[64];
+static size_t headLen = 0;
+
+// Checks the start of an uploaded file is a Pod Hub *app* image for the
+// ESP32-S3, not the whole-flash installer file or something else.
+static const char* checkImageHeader(const uint8_t* h) {
+  if (h[0] != 0xE9) return "That isn't a firmware file.";
+  const uint16_t chip = (uint16_t)(h[12] | (h[13] << 8));
+  if (chip != 0x0009) return "That firmware is for a different chip.";
+  // esp_app_desc_t follows the image header (24 bytes) and first segment
+  // header (8): its magic word is only present in app images. The installer
+  // file starts with the bootloader instead.
+  const uint32_t magic = (uint32_t)h[32] | ((uint32_t)h[33] << 8) | ((uint32_t)h[34] << 16) | ((uint32_t)h[35] << 24);
+  if (magic != 0xABCD5432) return "That's the installer file. Choose podhub-update.bin instead.";
+  return nullptr;
+}
+
+static void onUpload(AsyncWebServerRequest* req, const String& filename, size_t index, uint8_t* data, size_t len,
+                     bool final) {
+  if (index == 0) {
+    updateError = "";
+    updateDone = false;
+    headLen = 0;
+    updateTotal = req->contentLength();
+    if (!updateAllowed) {
+      updateError = "Finish the drill first.";
+      return;
+    }
+    ESP_LOGI(TAG, "firmware upload started: %s (%u bytes)", filename.c_str(), (unsigned)updateTotal);
+    updatePct = 0;
+  }
+  if (updateError.length()) return;
+
+  // Hold back the first 64 bytes until the header can be checked.
+  size_t used = 0;
+  if (headLen < sizeof(headBuf)) {
+    used = min(len, sizeof(headBuf) - headLen);
+    memcpy(headBuf + headLen, data, used);
+    headLen += used;
+    if (headLen < sizeof(headBuf) && !final) return;
+    if (headLen < sizeof(headBuf)) {
+      updateError = "That file is too small to be firmware.";
+      updatePct = -1;
+      return;
+    }
+    if (const char* why = checkImageHeader(headBuf)) {
+      updateError = why;
+      updatePct = -1;
+      ESP_LOGW(TAG, "update refused: %s", why);
+      return;
+    }
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH) || Update.write(headBuf, headLen) != headLen) {
+      updateError = String("Couldn't start the update: ") + Update.errorString();
+      updatePct = -1;
+      return;
+    }
+  }
+  if (len > used && Update.write(data + used, len - used) != len - used) {
+    updateError = String("Write failed: ") + Update.errorString();
+    Update.abort();
+    updatePct = -1;
+    return;
+  }
+  if (updateTotal) updatePct = (int8_t)min<size_t>(99, (index + len) * 100 / updateTotal);
+  if (final) {
+    if (Update.end(true)) {
+      updatePct = 100;
+      updateDone = true;
+      ESP_LOGI(TAG, "firmware update written (%u bytes), restarting", (unsigned)(index + len));
+    } else {
+      updateError = String("Update failed: ") + Update.errorString();
+      updatePct = -1;
+    }
+  }
+}
 static volatile bool newClient = false;
 
 // Phones that have opened the page. Their connectivity checks get the
@@ -87,6 +170,16 @@ static void onWsData(AsyncWebSocketClient* client, const uint8_t* data, size_t l
   } else if (!strcmp(cmd, "player")) {
     c.type = WebCmd::Player;
     c.value = doc["player"] | -1;
+  } else if (!strcmp(cmd, "set")) {
+    c.type = WebCmd::Set;
+    c.value = doc["value"] | -1;
+    strlcpy(c.text, doc["key"] | "", sizeof(c.text));
+  } else if (!strcmp(cmd, "rescan")) {
+    c.type = WebCmd::Rescan;
+  } else if (!strcmp(cmd, "eraseHistory")) {
+    c.type = WebCmd::EraseHistory;
+  } else if (!strcmp(cmd, "factoryReset")) {
+    c.type = WebCmd::FactoryReset;
   } else if (!strcmp(cmd, "groups")) {
     c.type = WebCmd::Groups;
   } else if (!strcmp(cmd, "flash")) {
@@ -180,6 +273,20 @@ void PhoneServer::start(StatusFn status) {
       req->send(r);
     });
 
+    // Firmware update: multipart upload of podhub-update.bin.
+    server.on(
+        "/api/update", HTTP_POST,
+        [](AsyncWebServerRequest* req) {
+          if (updateDone) {
+            req->send(200, "text/plain", "Updated. The hub is restarting.");
+          } else {
+            req->send(400, "text/plain", updateError.length() ? updateError : String("Update failed."));
+            if (Update.isRunning()) Update.abort();
+            updatePct = -1;
+          }
+        },
+        onUpload);
+
     // Connectivity checks. Unknown phone -> redirect (opens the portal).
     // Phone that already has the page -> the expected "online" answer.
     auto apple = [](AsyncWebServerRequest* req) {
@@ -253,3 +360,7 @@ bool PhoneServer::takeNewClient() {
   newClient = false;
   return true;
 }
+
+void PhoneServer::setUpdateAllowed(bool ok) { updateAllowed = ok; }
+int8_t PhoneServer::updateProgress() const { return updatePct; }
+bool PhoneServer::updateSucceeded() const { return updateDone; }

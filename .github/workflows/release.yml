@@ -1,0 +1,72 @@
+name: release
+
+# Tag a version (e.g. v1.0.0) to publish it:
+#   - a GitHub Release with podhub-install.bin and podhub-update.bin
+#   - the one-click installer site on GitHub Pages
+# Can also be run by hand (Actions -> release -> Run workflow) to refresh
+# the installer site from the current main branch.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # create the release
+  pages: write     # deploy the installer site
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # git describe needs the tags
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ hashFiles('platformio.ini') }}
+      - run: pip install platformio
+      - name: Unit tests
+        run: pio test -e native
+      - name: Version
+        id: version
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then v="${{ github.ref_name }}"; else v="$(git describe --tags --always)"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Build firmware
+        env:
+          PODHUB_VERSION: ${{ steps.version.outputs.version }}
+        run: pio run -e dial
+      - name: Build installer site
+        run: python scripts/make_site.py .pio/build/dial site "${{ steps.version.outputs.version }}"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - name: GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            site/podhub-install.bin
+            site/podhub-update.bin
+          generate_release_notes: true
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

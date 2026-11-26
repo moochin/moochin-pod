@@ -52,10 +52,14 @@ class DialUi {
   void onTap(const PodTap& tap);
   // Left/right setup: tap the pods to swap sides, press the Dial to save.
   void startGroupSetup();
+  // Settings changed from the phone: apply brightness/sound and redraw.
+  void applySettings();
+  // Firmware update in progress (0..100): takes over the screen.
+  void showUpdate(int8_t percent);
   uint8_t leftMask() const;
 
  private:
-  enum class Screen : uint8_t { Home, Countdown, Running, Results, Menu, ConfirmOff, AutoOffWarn, PhoneQr, Groups };
+  enum class Screen : uint8_t { Home, Countdown, Running, Results, Menu, ConfirmOff, AutoOffWarn, PhoneQr, Groups, Updating };
   enum MenuItem : uint8_t {
     kBack, kPlayer, kDrillLength, kGroups, kSound, kBrightness, kPhone, kRescan, kAutoOff, kDemo, kShutDown, kMenuCount
   };
@@ -114,4 +118,5 @@ class DialUi {
   PodStatus shownStatus_[6] = {};
   char playerName_[16] = "";
   uint8_t groupsEdit_ = 0;  // working copy while setting up left/right
+  int8_t updatePct_ = -1;
 };

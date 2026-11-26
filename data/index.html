@@ -90,6 +90,9 @@ summary{min-height:44px;display:flex;align-items:center}
 .chart svg{display:block;width:100%;height:170px}
 .chart p{margin:4px 2px 0;color:var(--dim);font-size:14px}
 a.big{color:var(--fg);text-decoration:none;text-align:center;display:flex;align-items:center;justify-content:center}
+.danger{color:var(--stop)}
+input[type=file]{min-height:auto;padding:12px;border-style:dashed}
+.note{color:var(--dim);font-size:15px;margin:8px 0 0}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -117,6 +120,7 @@ a.big{color:var(--fg);text-decoration:none;text-align:center;display:flex;align-
 
   <button class="big go" id="startBtn">Start</button>
   <button class="big second" id="historyBtn">History</button>
+  <button class="big second small" id="settingsBtn">Settings</button>
 
   <details id="details">
     <summary>Hub details</summary>
@@ -180,6 +184,36 @@ a.big{color:var(--fg);text-decoration:none;text-align:center;display:flex;align-
   <button class="big go" id="histBack">Back</button>
 </section>
 
+<!-- SETTINGS -->
+<section id="set" hidden>
+  <h2 style="margin-top:4px">Sound</h2>
+  <div class="seg" id="setSound"></div>
+  <h2>Brightness</h2>
+  <div class="seg" id="setBright"></div>
+  <h2>Switch off when unused</h2>
+  <div class="seg" id="setAutoOff"></div>
+  <h2>Pods</h2>
+  <div class="seg" id="setPods"></div>
+  <p class="note">How many pods the hub looks for. Changing it restarts the hub.</p>
+  <button class="big second small" id="rescanBtn">Find pods again</button>
+  <div class="seg" id="setDemo" style="margin-top:12px"></div>
+  <p class="note">Demo pods simulate pods with no hardware. Changing it restarts the hub.</p>
+
+  <h2>Update the hub</h2>
+  <p class="note">Installed: <b id="setVersion"></b>. Download <b>podhub-update.bin</b> from the Pod Hub installer page, then choose it here.</p>
+  <input type="file" id="fwFile" accept=".bin" style="margin-top:10px">
+  <button class="big go" id="fwBtn" disabled>Update</button>
+  <div class="bar" id="fwBarWrap" hidden><i id="fwBar" style="width:0"></i></div>
+  <p class="note" id="fwMsg"></p>
+
+  <h2>Start again</h2>
+  <button class="big second small danger" id="eraseBtn">Erase history and PBs</button>
+  <button class="big second small danger" id="resetBtn">Factory reset</button>
+  <p class="note">Factory reset also forgets the pods, players and settings.</p>
+
+  <button class="big go" id="setBack">Back</button>
+</section>
+
 <!-- PLAYERS -->
 <dialog id="players">
   <h2 style="margin-top:0">Who's training?</h2>
@@ -221,20 +255,22 @@ function setConn(on) {
 
 // ---------------------------------------------------------------- render
 const fmt = (ms) => ms ? String(ms) : '–';
-function show(id) { for (const s of ['home', 'run', 'res', 'hist']) $(s).hidden = s !== id; }
-let historyOpen = false, hist = null, histDrill = null;
+function show(id) { for (const s of ['home', 'run', 'res', 'hist', 'set']) $(s).hidden = s !== id; }
+let historyOpen = false, settingsOpen = false, hist = null, histDrill = null;
 
 function render() {
   if (!st) return;
   $('playerName').textContent = st.players[st.player] || 'Player';
   let view = st.phase === 'countdown' || st.phase === 'running' ? 'run' : st.phase === 'finished' ? 'res' : 'home';
   if (view === 'home' && historyOpen) view = 'hist';
-  if (view !== 'home' && view !== 'hist') historyOpen = false;
+  if (view === 'home' && settingsOpen) view = 'set';
+  if (view !== 'home' && view !== 'hist' && view !== 'set') historyOpen = settingsOpen = false;
   show(view);
   if (view === 'home') renderHome();
   if (view === 'run') renderRun();
   if (view === 'res') renderRes();
   if (view === 'hist') renderHist();
+  if (view === 'set') renderSettings();
   if ($('players').open) renderPlayers();
 }
 
@@ -361,6 +397,41 @@ function renderChart(sessions) {
     : `Average reaction (ms), last ${pts.length}: ${first} → ${last}. Lower is better.`;
 }
 
+// ---------------------------------------------------------------- settings
+function seg(id, options, current, key) {
+  $(id).innerHTML = options.map(([v, label]) =>
+    `<button class="${v === current ? 'sel' : ''}" data-key="${key}" data-val="${v}">${label}</button>`).join('');
+}
+function renderSettings() {
+  const s = st.settings;
+  seg('setSound', [[1, 'On'], [0, 'Off']], s.sound ? 1 : 0, 'sound');
+  seg('setBright', [0, 1, 2, 3].map((v) => [v, String(v + 1)]), s.bright, 'bright');
+  seg('setAutoOff', s.autoOffOptions.map((m) => [m, m ? m + ' min' : 'Never']), s.autoOff, 'autoOff');
+  seg('setPods', [1, 2, 3, 4, 5, 6].map((n) => [n, String(n)]), s.pods, 'pods');
+  seg('setDemo', [[0, 'Real pods'], [1, 'Demo pods']], s.demo ? 1 : 0, 'demo');
+  $('setVersion').textContent = st.version;
+}
+
+function uploadFirmware() {
+  const f = $('fwFile').files[0];
+  if (!f) return;
+  if (!/\.bin$/i.test(f.name)) { $('fwMsg').textContent = 'Choose the podhub-update.bin file.'; return; }
+  const fd = new FormData();
+  fd.append('firmware', f, f.name);
+  const xhr = new XMLHttpRequest();
+  $('fwBtn').disabled = true;
+  $('fwBarWrap').hidden = false;
+  $('fwMsg').textContent = 'Sending… keep this page open.';
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) $('fwBar').style.width = (100 * e.loaded / e.total).toFixed(0) + '%'; };
+  xhr.onload = () => {
+    $('fwMsg').textContent = xhr.status === 200 ? 'Done! The hub is restarting. Rejoin PodHub in a moment.' : xhr.responseText;
+    if (xhr.status !== 200) { $('fwBtn').disabled = false; $('fwBarWrap').hidden = true; }
+  };
+  xhr.onerror = () => { $('fwMsg').textContent = 'Lost contact with the hub during the update. Try again.'; $('fwBtn').disabled = false; };
+  xhr.open('POST', '/api/update');
+  xhr.send(fd);
+}
+
 // ---------------------------------------------------------------- players
 let editing = 0;
 function renderPlayers() {
@@ -378,6 +449,12 @@ document.addEventListener('click', (e) => {
   else if (t.dataset.drill !== undefined) send({cmd: 'drill', drill: +t.dataset.drill});
   else if (t.dataset.sec !== undefined) send({cmd: 'seconds', seconds: +t.dataset.sec});
   else if (t.dataset.hdrill !== undefined) { histDrill = +t.dataset.hdrill; renderHist(); }
+  else if (t.dataset.key !== undefined) {
+    const key = t.dataset.key, value = +t.dataset.val;
+    if ((key === 'pods' || key === 'demo') &&
+        !confirm('The hub will restart to change this. The page reconnects by itself.')) return;
+    send({cmd: 'set', key, value});
+  }
   else if (t.dataset.player !== undefined) {
     editing = +t.dataset.player;
     send({cmd: 'player', player: editing});
@@ -392,6 +469,18 @@ $('groupsBtn').onclick = () => {
   alert('On the pods: tap a pod to swap it between left (blue) and right (yellow). Then press the Dial to save.');
 };
 $('historyBtn').onclick = () => { historyOpen = true; histDrill = st ? st.drill : 0; hist = null; render(); loadHistory(); };
+$('settingsBtn').onclick = () => { settingsOpen = true; render(); window.scrollTo(0, 0); };
+$('setBack').onclick = () => { settingsOpen = false; render(); window.scrollTo(0, 0); };
+$('rescanBtn').onclick = () => { send({cmd: 'rescan'}); alert('Looking for pods. Make sure they are switched on.'); };
+$('fwFile').onchange = () => { $('fwBtn').disabled = !$('fwFile').files.length; $('fwMsg').textContent = ''; };
+$('fwBtn').onclick = uploadFirmware;
+$('eraseBtn').onclick = () => {
+  if (confirm('Delete every saved session and personal best, for all players?')) send({cmd: 'eraseHistory'});
+};
+$('resetBtn').onclick = () => {
+  if (confirm('Factory reset: forget pods, players, settings and all history?') &&
+      confirm('Are you sure? This cannot be undone.')) send({cmd: 'factoryReset'});
+};
 $('histBack').onclick = () => { historyOpen = false; render(); window.scrollTo(0, 0); };
 $('stopBtn').onclick = () => send({cmd: 'stop'});
 $('repeatBtn').onclick = () => send({cmd: 'repeat'});

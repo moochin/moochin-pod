@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pod Hub installer</title>
+<meta name="description" content="Install Pod Hub on an M5Stack Dial from your browser.">
+<script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
+<style>
+:root{
+  --bg:#ffffff;--fg:#0b0b0b;--dim:#555;--card:#f2f2f2;--line:#dcdcdc;
+  --go:#0a7a3d;--go-fg:#fff;--warn:#8a5a00;--warn-bg:#fff4d6;--link:#0057d9;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d0d0d;--fg:#f4f4f4;--dim:#a9a9a9;--card:#1b1b1b;--line:#333;
+  --go:#3ddc84;--go-fg:#000;--warn:#ffcf6b;--warn-bg:#2b2310;--link:#79b2ff;
+}}
+:root[data-theme="dark"]{
+  --bg:#0d0d0d;--fg:#f4f4f4;--dim:#a9a9a9;--card:#1b1b1b;--line:#333;
+  --go:#3ddc84;--go-fg:#000;--warn:#ffcf6b;--warn-bg:#2b2310;--link:#79b2ff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:18px/1.5 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif}
+main{max-width:640px;margin:0 auto;padding:32px 16px 48px}
+h1{font-size:34px;line-height:1.15;margin:0 0 6px}
+.lead{color:var(--dim);margin:0 0 28px}
+ol.steps{list-style:none;padding:0;margin:0;counter-reset:s}
+ol.steps>li{counter-increment:s;position:relative;padding:0 0 26px 58px}
+ol.steps>li::before{content:counter(s);position:absolute;left:0;top:-2px;width:40px;height:40px;border-radius:50%;
+  background:var(--fg);color:var(--bg);font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center}
+ol.steps h2{font-size:21px;margin:4px 0 4px}
+ol.steps p{margin:0;color:var(--dim)}
+.install{margin:14px 0 4px}
+esp-web-install-button button[slot=activate]{font:inherit;font-size:24px;font-weight:800;border:0;border-radius:16px;
+  background:var(--go);color:var(--go-fg);padding:18px 34px;cursor:pointer;min-width:220px}
+.notice{background:var(--warn-bg);color:var(--warn);border-radius:12px;padding:12px 14px;font-weight:600}
+.card{background:var(--card);border-radius:14px;padding:16px 18px;margin-top:28px}
+.card h2{font-size:20px;margin:0 0 6px}
+.card p{margin:6px 0;color:var(--dim)}
+a{color:var(--link)}
+.dl{display:inline-block;margin-top:6px;font-weight:700}
+details{margin-top:16px;border-top:1px solid var(--line);padding-top:10px}
+summary{cursor:pointer;font-weight:700;min-height:40px;display:flex;align-items:center}
+details li{margin:6px 0;color:var(--dim)}
+footer{margin-top:36px;color:var(--dim);font-size:14px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Pod Hub</h1>
+  <p class="lead">Put Pod Hub on your M5Stack Dial. It takes about a minute, and you only do it once.</p>
+
+  <ol class="steps">
+    <li>
+      <h2>Plug in the Dial</h2>
+      <p>Use a USB-C cable to connect the Dial to this computer. Some cables only charge: if nothing shows up in step 2, try another one.</p>
+    </li>
+    <li>
+      <h2>Click Install</h2>
+      <p>Choose the Dial from the list (it's called <b>USB JTAG/serial debug unit</b>), then <b>Connect</b>.</p>
+      <div class="install">
+        <esp-web-install-button manifest="manifest.json">
+          <button slot="activate">Install</button>
+          <div slot="unsupported" class="notice">This browser can't install. Open this page in <b>Chrome</b> or <b>Edge</b> on a laptop or desktop.</div>
+          <div slot="not-allowed" class="notice">Installing needs a secure page. Open it from its https:// address.</div>
+        </esp-web-install-button>
+      </div>
+    </li>
+    <li>
+      <h2>Follow the prompts</h2>
+      <p>The <b>first time</b>, tick <b>Erase device</b>. If you're reinstalling Pod Hub, leave it unticked to keep your pods, players and history. Click <b>Install</b> and wait for it to finish.</p>
+    </li>
+    <li>
+      <h2>Done</h2>
+      <p>Unplug the Dial. Switch your pods on, then the Dial. The pods connect by themselves, and each one flashes its number colour.</p>
+    </li>
+  </ol>
+
+  <div class="card">
+    <h2>Already installed? Update over Wi-Fi</h2>
+    <p>No cable needed. Download the update file on your phone, then on the Dial turn on <b>Menu → Phone mode</b>, join <b>PodHub</b>, and open <b>Settings → Update the hub</b>.</p>
+    <a class="dl" href="podhub-update.bin" download>Download podhub-update.bin</a>
+  </div>
+
+  <details>
+    <summary>Something went wrong?</summary>
+    <ul>
+      <li><b>No Install button, or "this browser can't install":</b> use Chrome or Edge on a computer. Phones and Safari can't do this step.</li>
+      <li><b>The Dial isn't in the list:</b> try another cable, or a different USB port.</li>
+      <li><b>It stops partway:</b> unplug the Dial, plug it back in, and click Install again.</li>
+      <li><b>Prefer another flasher?</b> <a href="podhub-install.bin" download>podhub-install.bin</a> is the whole image, written at address <code>0x0</code>.</li>
+    </ul>
+  </details>
+
+  <footer>Version {{VERSION}}. Pod Hub is an unofficial personal project, not made by or connected with BlazePod.</footer>
+</main>
+</body>
+</html>

@@ -1,109 +1,142 @@
 # Pod Hub
 
-A small box (an M5Stack Dial) that runs reaction-light drills on your BlazePods. No app, no account, no subscription, and no home Wi-Fi.
+Run reaction-light drills on your BlazePods from a small M5Stack Dial: no app, no account, no subscription, no Wi-Fi needed. Turn the knob to pick a drill, press to start, and see the results on the Dial. A phone is optional.
 
-> Unofficial personal project. Not affiliated with or endorsed by BlazePod / PLAY COYOTTA LTD.
-> **Once Pod Hub works, don't update your pods' firmware in the official app.** An update could change how the pods talk, and the hub would stop working.
-
-**Status: milestone 5.** All five drills, history per player with trends, and CSV download. The one-click installer and updates over Wi-Fi come next. This page will become a step-by-step guide for parents.
+> Pod Hub is an unofficial personal project. It isn't made by or connected with BlazePod / PLAY COYOTTA LTD.
+>
+> **Please don't update your pods' firmware in the official BlazePod app** once Pod Hub works. An update could change how the pods talk, and the hub would stop working with them.
 
 ---
 
-## Testing (milestones 1 and 2)
+## What you need
 
-You need Chrome or Edge on a laptop, a USB-C cable, the Dial and your pods.
+- An **M5Stack Dial** (with a battery fitted, or a USB-C power bank)
+- Your **BlazePods** (up to 6)
+- **Once, to install:** a laptop or desktop with **Chrome or Edge**, and a USB-C cable
+- **Optional:** a phone, for the bigger screen, history and downloads
 
-### 1. Get the firmware file
+---
 
-1. Open the repo on GitHub, then go to **Actions**, then **build**, then the latest green run.
-2. Download **podhub-firmware** and unzip it. You need `podhub-factory.bin`.
+## 1. Install Pod Hub (once)
 
-### 2. Put it on the Dial (no terminal needed)
+1. On the computer, open the installer page: **<https://moochin.github.io/moochin-pod/>**
+2. Plug the Dial in with the USB-C cable.
+3. Click **Install** and choose the Dial (**USB JTAG/serial debug unit**).
+4. The first time, tick **Erase device**. Then click **Install** and wait about a minute.
+5. Unplug the Dial. That's it: you won't need the computer again. Updates come over Wi-Fi (see [Updating](#updating)).
 
-1. Plug the Dial into the laptop.
-2. Open <https://espressif.github.io/esptool-js/> in Chrome.
-3. Set **Baudrate** to 921600 and click **Connect**. Pick the port that looks like `USB JTAG/serial debug unit`.
-   - If no port shows up, try another USB-C cable. Some cables only carry power.
-4. Under **Flash Address** enter `0x0`, choose `podhub-factory.bin`, then click **Program**.
-5. When it finishes, unplug the Dial and plug it back in.
+---
 
-### 3. Watch it work
+## 2. Every training session
 
-1. On the same page, scroll to **Console**, set the baud rate to 115200 and click **Start**. This shows the hub's log.
-2. **Fully close the BlazePod app** (swipe it away), or switch the phone's Bluetooth off. Pods connected to the app stop advertising and the hub can't see them.
-3. Switch your pods on.
-4. Within a few seconds each pod should flash its number colour: 1 red, 2 green, 3 blue, 4 yellow. Its dot on the Dial lights up in the same colour.
-5. **Press the Dial.** A random pod lights white. Tap it. The screen shows the reaction time the pod measured, and the log shows a line like:
-   `TAP pod 2 lit-turned-off pod_ms=412 ...`
-6. Switch a pod off and on again. It should reconnect by itself within a few seconds.
-7. **Hold the Dial down for 1.5 seconds** to forget all pods and search again.
+1. **Close the BlazePod app** on your phone (or switch Bluetooth off). Pods connected to the app can't be seen by the hub.
+2. **Switch the pods on**, then **switch the Dial on**.
+3. Wait a few seconds. Each pod flashes its number colour as it connects (1 red, 2 green, 3 blue, 4 yellow), and its dot lights up around the edge of the Dial.
+4. **Turn the knob** to choose a drill, then **press the Dial** to start. You get a 3-2-1 countdown with beeps, then go.
+5. While it runs you see the hits, the last reaction time, and a ring showing the time left. **Press** to stop early.
+6. At the end the Dial shows hits, average, best and misses, and **PB!** if you beat your best. **Turn** to see each pod, **press** to go back.
 
-### If it says "Searching..." and nothing connects
+The beeps help when a pod is behind you: a short beep when a pod lights, a double beep for a miss, a low buzz for the wrong pod, and rising notes at the end.
 
-While searching, the Dial lists the strongest Bluetooth devices it can hear: name, signal strength and `m` (bytes of manufacturer data). Anything recognised as a pod is shown in **green**. Take a photo of the screen with the pods next to the Dial:
+---
 
-- **No pod names at all:** the pods aren't advertising. Check the app is closed, then switch the pods off and on.
-- **Pods listed but not green:** they advertise differently from what the hub expects. The photo shows how, and I can fix it.
+## The drills
 
-### Using the Dial
-
-| Do this | What happens |
+| Drill | What happens |
 |---|---|
-| **Turn** the knob on the home screen | Choose a drill: Reaction, Sprint, Sequence, Colour call, Left / right |
-| **Press** | Start: 3-2-1 countdown with beeps, then go |
-| **Press** during a drill | Stop early |
-| **Turn** on the results | Results for each pod. **Press** to go back |
-| **Hold 3 s** | Menu: player, drill length, left/right pods, sound, brightness, phone mode, find pods again, auto switch-off, demo pods, switch off |
+| **Reaction** | One pod lights white. Hit it. The next one lights 0.5 to 2 s later, never the same pod twice in a row. |
+| **Sprint** | As many hits as you can. The next pod lights straight away. |
+| **Sequence** | Pods light in order 1, 2, 3, 4. Good for conditioning circuits. |
+| **Colour call** | A **green** and a **red** pod light together. Hit green. Red is a decoy: hitting it counts as **wrong**. Like reading the defence. |
+| **Left / right** | One pod on each side lights. **Blue = hit the left one, yellow = hit the right one.** |
 
-The drills:
+You get 3 seconds per light, or it's a miss. Drills last **30 seconds** unless you change it. Reaction times are measured by the pods themselves, so they're accurate to the millisecond.
 
-- **Reaction:** one random pod lights white. Hit it, and the next one lights 0.5 to 2 s later. Never the same pod twice in a row.
-- **Sprint:** as many hits as you can, the next pod lights straight away.
-- **Sequence:** pods light in order 1, 2, 3, 4, for conditioning circuits.
-- **Colour call:** a green pod and a red pod light together. Hit the green one. The red one is a decoy, and hitting it counts as **wrong** (low buzz). Like reading the defence.
-- **Left / right:** one pod on each side lights in the same colour. **Blue = hit the left one, yellow = hit the right one.** Hitting the other one counts as wrong.
+**Setting up left and right:** place the pods, then go to **Menu → Left/right pods**. Left pods glow blue and right pods yellow. **Tap a pod to swap its side**, then press the Dial to save.
 
-**Setting up left and right:** put the pods where you want them, then go to **Menu → Left/right pods** (or tap **Set left / right pods** on the phone when Left / right is selected). The left pods glow blue and the right ones yellow. **Tap a pod to swap its side**, then press the Dial to save. Hold the Dial to cancel. Until you set them, pods 1 and 2 are left and 3 and 4 are right.
+---
 
-Each light gives you 3 s, or it counts as a miss (double beep). Drills last 30 s by default (change it in the menu: 20, 30, 45 or 60 s). The reaction time shown is the one the pod measured.
+## The menu
 
-**Players:** choose who's training under **Menu → Player**. Personal bests are kept per player, per drill and per drill length, and the results screen flashes **PB!** when one is beaten. Players are called "Player 1" to "Player 4" until the phone page (milestone 4) lets you rename them.
+**Hold the Dial down for 3 seconds.** Turn to move, press to change.
 
-**Switching off:** **Menu → Switch off**, then press to confirm. On battery that cuts the power completely. Switch it back on the way you normally do (the WAKE button). On USB power the Dial can't switch itself off, so it just goes dark until you unplug it. It also switches itself off after **15 minutes** unused, with a 30-second countdown first; any press or turn cancels it. Change or disable this under **Menu → Auto switch-off**. It never switches off during a drill or while a phone is connected.
+| Item | What it does |
+|---|---|
+| Player | Who's training (results and PBs are kept per player) |
+| Drill length | 20, 30, 45 or 60 seconds |
+| Left/right pods | Set which pods are on which side |
+| Sound | Beeps on or off |
+| Brightness | 1 to 4 |
+| Phone mode | Turns on the hub's own Wi-Fi for a phone (see below) |
+| Find pods again | Forget the pods and search again (e.g. after swapping a pod) |
+| Auto switch-off | Switch off after 5, 10, 15 or 30 minutes unused, or never |
+| Demo pods | Pretend pods, to try things out without real ones |
+| Switch off | Turns the Dial off |
 
-**Battery level:** the Dial has no way to measure its battery, so the level isn't shown.
+---
 
-**Using a phone (optional):**
+## Using a phone (optional)
 
-1. On the Dial, go to **Menu → Phone mode** and press to turn it on. A QR code appears.
-2. Point the iPhone camera at the QR code and tap **Join "PodHub"**. The control page should open by itself. If it doesn't, open Safari and go to `192.168.4.1` (or `pod.hub`).
-3. From the page you can pick the drill and length, start and stop, see live hits and times, see results with the per-pod breakdown, and tap **Go again**. Tap a pod circle to make that pod flash.
-4. Tap the player name at the top to **choose who's training** and **rename players**.
+1. On the Dial: **Menu → Phone mode**. A QR code appears.
+2. Point the phone's camera at it and tap **Join "PodHub"**. The Pod Hub page opens by itself. If it doesn't, open the browser and go to **192.168.4.1**.
+3. Start and stop drills, pick the drill and length, watch the live numbers, see results for each pod, and tap **Go again**. The phone and the Dial stay in step.
+4. Tap the **player name** at the top to choose who's training or **rename players**.
+5. **History** shows past sessions and a trend for each drill. **Download (CSV)** gives you a spreadsheet. If the download doesn't start, open 192.168.4.1 in Safari and try again.
+6. **Settings** covers sound, brightness, auto switch-off, how many pods to look for, demo pods, updating, and starting again.
 
-The phone and the Dial stay in step: start on one and the other follows. When a phone connects it also sets the Dial's clock, so sessions are saved with the right date and time.
+<p>
+<img src="docs/images/phone-home.png" width="180" alt="Phone home screen: pods, drills, length and a Start button">
+<img src="docs/images/phone-running.png" width="180" alt="Phone during a drill: hits, last and average times, time left, Stop">
+<img src="docs/images/phone-results.png" width="180" alt="Phone results: hits, average, best, PB badge and per-pod table">
+<img src="docs/images/phone-history.png" width="180" alt="Phone history: trend chart and list of past sessions">
+</p>
 
-**History:** every drill is saved for the player who did it, with every hit, miss and wrong pod. The latest 200 sessions are kept. On the phone, tap **History** to see recent sessions and a trend for each drill: average reaction time for Reaction, Colour call and Left / right (lower is better), and hits for Sprint and Sequence (higher is better). Demo and stopped sessions are listed but left out of the trend. **Download (CSV)** gives a spreadsheet with one row per session, for one player or everyone. If the download doesn't start in the pop-up window, open `192.168.4.1` in Safari and download from there.
+The hub's Wi-Fi only runs in phone mode, and needs no internet or home Wi-Fi. The first time a phone connects it also sets the Dial's clock, so sessions are saved with the date and time.
 
-**Demo pods:** **Menu → Demo pods** simulates 4 pods with realistic reaction times, so you can try the drills with no pods. The Dial restarts to switch. Demo results never count as personal bests.
+---
 
-### Milestone 2: the 20-minute stability test
+## Players, personal bests and history
 
-1. Flash the new firmware as above. Phone mode is **on** at first start.
-2. Switch the pods on. Note how long it takes for all four dots to light. The log prints `all 4 pods connected ... ms after start`.
-3. **Unplug the Dial and plug it back in.** Each pod should keep its number: pod 1 is still red, and so on.
-4. **Join the hub from your iPhone.** Press twice to show the QR code (or open Settings → Wi-Fi → `PodHub`). The status page should open by itself. If it doesn't, open Safari and go to `192.168.4.1`.
-5. **Press three times** to start the soak test. The hub lights a pod every couple of seconds. Tap some of them and leave the rest, so both hits and misses are counted.
-6. Leave it running for **20 minutes or more**, with the phone page open part of the time. Partway through, switch one pod off for about 10 seconds and back on, then walk a pod away until it drops.
-7. Check the bottom line on the Dial (`uptime  drops  free memory`) and the phone page.
+- Up to **4 players**. Choose under **Menu → Player** or on the phone.
+- **Personal bests** are kept per player, per drill and per drill length: lowest average for Reaction, Colour call and Left / right, most hits for Sprint and Sequence.
+- **Every session is saved**, with every hit, miss and wrong pod. The latest 200 are kept.
+- Demo-pod sessions never count as personal bests.
 
-**What good looks like:** no reboots (uptime keeps counting), free memory steady rather than falling, any dropped pod back within 10 seconds (`Worst gap` on the phone page), and all pods connected within 20 seconds of power-on.
+---
 
-### What to send back
+## Switching off and the battery
 
-Copy the console log and send it, especially:
+- **Menu → Switch off**, then press to confirm. On battery, this cuts the power. Switch it back on the way you normally do.
+- It **switches itself off after 15 minutes unused**, with a 30-second countdown first; press or turn to keep it on. It never switches off during a drill or while a phone is connected.
+- On USB power the Dial can't switch itself off. The screen just goes dark until you unplug it.
+- The Dial can't measure its battery, so there's no battery level. Charge it after each session.
 
-- the `found pod` lines (they show each pod's advertising data),
-- the `GATT table` lines (they show whether the pods report their battery),
-- any line saying **not responding** or **newer firmware**,
-- the `heap free=` lines after a few minutes,
-- for milestone 2: the `all 4 pods connected` line, the `pod N: ... drops= worstGap=` summary from the end of the run, and a screenshot of the phone page.
+---
+
+## Updating
+
+No cable needed:
+
+1. On your phone, open **<https://moochin.github.io/moochin-pod/>** and tap **Download podhub-update.bin**.
+2. On the Dial, turn on **Menu → Phone mode** and join **PodHub**.
+3. On the Pod Hub page, open **Settings → Update the hub**, choose the file you downloaded, and tap **Update**.
+4. The Dial shows the progress and restarts by itself. Your pods, players and history are kept.
+
+You can also reinstall over USB from the installer page any time. Leave **Erase device** unticked to keep everything.
+
+---
+
+## If something's not right
+
+| Problem | Try this |
+|---|---|
+| Pods don't connect (grey dots) | Close the BlazePod app or turn off the phone's Bluetooth. Switch the pods off and on. **Menu → Find pods again**. |
+| One pod keeps dropping | Move it closer. Check its battery. |
+| A pod's dot stays **dark red** | It connects but won't respond. It may have new firmware from the BlazePod app that the hub doesn't understand. |
+| Phone page doesn't open | Make sure phone mode is on and the phone is on **PodHub**, then open **192.168.4.1** in the browser. |
+| The phone leaves PodHub | It's looking for internet. Open the Pod Hub page once, and it should then stay. |
+| Something is muddled | **Settings → Factory reset** on the phone starts completely fresh. The hub then finds the pods again by itself. |
+
+---
+
+For developers: see [DEVELOPING.md](DEVELOPING.md).

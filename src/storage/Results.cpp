@@ -204,6 +204,24 @@ bool save(const SessionInfo& info, const DrillConfig& cfg, const DrillResult& r)
   return true;
 }
 
+void eraseAll() {
+  if (!mounted_) return;
+  Lock lock;
+  LittleFS.remove(kFile);
+  LittleFS.remove("/export.csv");
+  count_ = 0;
+  ESP_LOGI(TAG, "history erased");
+}
+
+void format() {
+  if (!mutex_) mutex_ = xSemaphoreCreateMutex();
+  Lock lock;
+  LittleFS.end();
+  LittleFS.format();
+  mounted_ = false;
+  count_ = 0;
+}
+
 void historyJson(String& out, int player, uint16_t max) {
   out = "{\"sessions\":[";
   if (mutex_) {

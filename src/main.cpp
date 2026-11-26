@@ -2,6 +2,7 @@
 // src/engine for drills, src/pods for the pod drivers.
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include <esp_heap_caps.h>
 
 #include "board/Board.h"
@@ -10,6 +11,7 @@
 #include "pods/BlazePodDriver.h"
 #include "pods/MockPodDriver.h"
 #include "settings/Settings.h"
+#include "storage/PersonalBests.h"
 #include "storage/Players.h"
 #include "storage/Results.h"
 #include "ui/DialUi.h"
@@ -35,6 +37,8 @@ static PodStatus lastStatus[6];
 static uint32_t identOffAt[6];
 
 static bool usingBle() { return pods == &blePods; }
+static void applySetting(const char* key, int value);
+static void factoryReset();
 
 // ------------------------------------------------------------------ status JSON
 // Milestone 2 status page; replaced by the full phone UI in milestone 4.
@@ -109,6 +113,15 @@ static void buildState(String& out) {
     p["c"] = kPodHex[i % 6];
   }
   doc["demo"] = settings.demoPods;
+  doc["version"] = PODHUB_VERSION;
+  JsonObject set = doc["settings"].to<JsonObject>();
+  set["sound"] = settings.sound;
+  set["bright"] = settings.brightness;
+  set["autoOff"] = settings.autoOffMin;
+  JsonArray ao = set["autoOffOptions"].to<JsonArray>();
+  for (uint8_t m : Settings::kAutoOffOptions) ao.add(m);
+  set["pods"] = settings.expectedPods;
+  set["demo"] = settings.demoPods;
   const DrillResult& r = engine->result();
   if (ph == DrillPhase::Countdown || ph == DrillPhase::Running) {
     JsonObject run = doc["run"].to<JsonObject>();
@@ -179,6 +192,17 @@ static void handlePhoneCommands(uint32_t now) {
       case WebCmd::Player: if (c.value >= 0) ui->selectPlayer((uint8_t)c.value); break;
       case WebCmd::Flash: if (c.value >= 0) flashPod((uint8_t)c.value, now); break;
       case WebCmd::Groups: ui->startGroupSetup(); break;
+      case WebCmd::Set: applySetting(c.text, c.value); break;
+      case WebCmd::Rescan: pods->rescan(); break;
+      case WebCmd::EraseHistory:
+        if (!ui->drillActive()) {
+          results::eraseAll();
+          pb::clearAll();
+        }
+        break;
+      case WebCmd::FactoryReset:
+        if (!ui->drillActive()) factoryReset();
+        break;
       case WebCmd::Rename:
         if (c.value >= 0 && c.value < Settings::kPlayers) {
           players::rename((uint8_t)c.value, c.text);
@@ -212,6 +236,53 @@ static void handlePhoneCommands(uint32_t now) {
     buildState(json);
     phone.broadcast(json);
   }
+}
+
+// Lights off, then restart (after changing pods/demo, an update or a reset).
+static void restartHub(const char* why) {
+  ESP_LOGI(TAG, "restarting: %s", why);
+  for (uint8_t i = 0; i < pods->maxPods(); i++) pods->setColour(i, {0, 0, 0});
+  delay(300);
+  ESP.restart();
+}
+
+// Everything back to how it came: settings, pods, players, PBs, history.
+static void factoryReset() {
+  ESP_LOGW(TAG, "factory reset");
+  for (const char* ns : {"settings", "pods", "players", "pb"}) {
+    Preferences p;
+    if (p.begin(ns, false)) {
+      p.clear();
+      p.end();
+    }
+  }
+  results::format();
+  restartHub("factory reset");
+}
+
+// A setting changed on the phone. Some need a restart to take effect.
+static void applySetting(const char* key, int value) {
+  bool restart = false;
+  if (!strcmp(key, "sound")) {
+    settings.sound = value != 0;
+  } else if (!strcmp(key, "bright") && value >= 0 && value <= 3) {
+    settings.brightness = (uint8_t)value;
+  } else if (!strcmp(key, "autoOff")) {
+    for (uint8_t m : Settings::kAutoOffOptions)
+      if (m == value) settings.autoOffMin = m;
+  } else if (!strcmp(key, "pods") && value >= 1 && value <= 6 && value != settings.expectedPods) {
+    settings.expectedPods = (uint8_t)value;
+    restart = true;
+  } else if (!strcmp(key, "demo") && (value != 0) != settings.demoPods) {
+    settings.demoPods = value != 0;
+    restart = true;
+  } else {
+    return;
+  }
+  settings.save();
+  ESP_LOGI(TAG, "setting %s = %d from phone", key, value);
+  if (restart) restartHub("pod setting changed");
+  ui->applySettings();
 }
 
 // A drill ended: append it to the history, stamped with the Dial's clock.
@@ -314,7 +385,20 @@ void loop() {
   }
 
   handlePhoneCommands(now);
-  ui->loop(now);
+
+  // Firmware update over Wi-Fi: show progress, restart once it's written.
+  phone.setUpdateAllowed(!ui->drillActive());
+  const int8_t updatePct = phone.updateProgress();
+  static uint32_t updatedAt = 0;
+  if (updatePct >= 0) {
+    ui->showUpdate(updatePct);
+    if (phone.updateSucceeded()) {
+      if (!updatedAt) updatedAt = now;
+      if (now - updatedAt > 1500) restartHub("firmware updated");  // let the phone get its reply first
+    }
+  } else {
+    ui->loop(now);
+  }
 
   static uint32_t lastLog = 0;
   if (now - lastLog > 30000) {

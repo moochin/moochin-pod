@@ -17,6 +17,8 @@ const base = {
     { name: 'Colour call', desc: 'Green and red light together. Hit green. Red is a decoy.', metric: 'avg', decoys: true },
     { name: 'Left / right', desc: 'Blue = hit the left pod, yellow = hit the right pod.', metric: 'avg', decoys: true }],
   leftMask: 3,
+  version: 'v1.0.0',
+  settings: { sound: true, bright: 2, autoOff: 15, autoOffOptions: [5, 10, 15, 30, 0], pods: 4, demo: false },
   player: 0, players: ['Sam', 'Dad', 'Player 3', 'Player 4'],
   pods: [['#ff3b30', 'connected'], ['#34c759', 'connected'], ['#0a84ff', 'searching'], ['#ffb400', 'connected']]
     .map(([c, st], i) => ({ n: i + 1, c, st })),
@@ -24,6 +26,11 @@ const base = {
 };
 let state = { ...base };
 const srv = http.createServer((req, res) => {
+  if (req.url === '/api/update' && req.method === 'POST') {
+    let n = 0;
+    req.on('data', (c) => { n += c.length; });
+    return req.on('end', () => { received.push({ cmd: 'upload', bytes: n }); res.end('Updated. The hub is restarting.'); });
+  }
   if (req.url.startsWith('/api/history')) {
     res.setHeader('content-type', 'application/json');
     const sessions = [];
@@ -83,6 +90,16 @@ srv.listen(0, async () => {
     await p.screenshot({ path: `${out}/11-history-colourcall-${scheme}.png` });
     await p.click('#histBack'); await p.waitForTimeout(200);
     push({ ...base }); await p.waitForTimeout(200);
+    await p.click('#settingsBtn'); await p.waitForTimeout(200);
+    if (scheme === 'light') {
+      await p.click('[data-key="bright"][data-val="3"]');
+      await p.click('[data-key="autoOff"][data-val="0"]');
+      fs.writeFileSync(`${out}/podhub-update.bin`, Buffer.alloc(200000, 0xE9));
+      await p.setInputFiles('#fwFile', `${out}/podhub-update.bin`);
+      await p.click('#fwBtn'); await p.waitForTimeout(800);
+    }
+    await p.screenshot({ path: `${out}/12-settings-${scheme}.png`, fullPage: true });
+    await p.click('#setBack'); await p.waitForTimeout(200);
     await p.click('#playerBtn'); await p.waitForTimeout(200);
     if (scheme === 'light') { await p.click('[data-player="1"]'); await p.fill('#renameInput', 'Pete'); await p.click('#saveName'); }
     await p.screenshot({ path: `${out}/5-players-${scheme}.png` });
